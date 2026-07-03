@@ -30,7 +30,7 @@ const writeRawData = (data) => {
   // Background write to Supabase
   supabase
     .from('tracker_store')
-    .upsert({ key: STORAGE_KEY, value: data })
+    .upsert({ key: STORAGE_KEY, value: data }, { onConflict: 'key' })
     .then(({ error }) => {
       if (error) {
         console.error("Error syncing data to Supabase:", error);
@@ -66,7 +66,7 @@ export const dataService = {
         const localData = localStorage.getItem(STORAGE_KEY) ? JSON.parse(localStorage.getItem(STORAGE_KEY)) : seedData;
         const { error: upsertError } = await supabase
           .from('tracker_store')
-          .upsert({ key: STORAGE_KEY, value: localData });
+          .upsert({ key: STORAGE_KEY, value: localData }, { onConflict: 'key' });
         
         if (upsertError) {
           console.error("Supabase upsert error:", upsertError);
@@ -105,7 +105,7 @@ export const dataService = {
         const localUsers = localStorage.getItem(USERS_KEY) ? JSON.parse(localStorage.getItem(USERS_KEY)) : defaultUsers;
         const { error: upsertError } = await supabase
           .from('tracker_store')
-          .upsert({ key: USERS_KEY, value: localUsers });
+          .upsert({ key: USERS_KEY, value: localUsers }, { onConflict: 'key' });
         
         if (upsertError) {
           console.error("Supabase upsert users error:", upsertError);

@@ -11,7 +11,7 @@ const defaultUsers = [
 const pushUsersToSupabase = (users) => {
   supabase
     .from('tracker_store')
-    .upsert({ key: 'crion_vrots_users_list', value: users })
+    .upsert({ key: 'crion_vrots_users_list', value: users }, { onConflict: 'key' })
     .then(({ error }) => {
       if (error) {
         console.error("Error syncing users to Supabase:", error);
