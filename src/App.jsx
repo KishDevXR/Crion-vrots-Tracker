@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Sidebar from './components/layout/Sidebar';
 import Topbar from './components/layout/Topbar';
 import TaskDetailDrawer from './components/common/TaskDetailDrawer';
 import RoleGuard from './components/common/RoleGuard';
+import { dataService } from './services/dataService';
 
 // Pages
 import Login from './pages/Login';
@@ -22,12 +23,37 @@ import Users from './pages/Users';
 import { useAuthStore } from './store/authStore';
 
 function AppContent() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, reloadUsers } = useAuthStore();
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
 
-  // State to manage the active task shown in the side drawer globally
+  const [isSyncing, setIsSyncing] = useState(true);
   const [activeTask, setActiveTask] = useState(null);
+
+  useEffect(() => {
+    const syncData = async () => {
+      await dataService.syncFromSupabase();
+      await dataService.syncUsersFromSupabase();
+      reloadUsers();
+      setIsSyncing(false);
+    };
+    syncData();
+  }, [reloadUsers]);
+
+  if (isSyncing) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white">
+        <div className="flex flex-col items-center p-8 bg-slate-900/60 border border-slate-800 rounded-2xl shadow-2xl backdrop-blur-md max-w-sm w-full text-center">
+          <div className="relative w-16 h-16 mb-6">
+            <div className="absolute inset-0 rounded-full border-4 border-slate-850"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-t-blue-500 animate-spin"></div>
+          </div>
+          <h2 className="text-xl font-bold mb-2">Connecting to Database</h2>
+          <p className="text-sm text-slate-400">Synchronizing tracker changes across devices...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Enforce redirection to login screen if not authenticated
   if (!isAuthenticated && !isLoginPage) {

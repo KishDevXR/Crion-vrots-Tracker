@@ -1,6 +1,8 @@
 import seedData from '../data/seed.json';
+import { supabase } from './supabaseClient';
 
 const STORAGE_KEY = 'crion_vrots_data';
+const USERS_KEY = 'crion_vrots_users_list';
 
 // Initialize data if not present in localStorage
 const initializeData = () => {
@@ -21,9 +23,19 @@ const readRawData = () => {
   }
 };
 
-// Write raw data to localStorage
+// Write raw data to localStorage and sync to Supabase in the background
 const writeRawData = (data) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  
+  // Background write to Supabase
+  supabase
+    .from('tracker_store')
+    .upsert({ key: STORAGE_KEY, value: data })
+    .then(({ error }) => {
+      if (error) {
+        console.error("Error syncing data to Supabase:", error);
+      }
+    });
 };
 
 // Check if role has access to budget/cost data
@@ -33,8 +45,58 @@ const hasBudgetAccess = (role) => {
 
 // Service Layer functions with role-based filtering
 export const dataService = {
-  // --- Auth/Role helper ---
-  // Get active role or pass it into services
+  // --- Supabase Sync Hooks ---
+  syncFromSupabase: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tracker_store')
+        .select('value')
+        .eq('key', STORAGE_KEY)
+        .single();
+      
+      if (data && data.value) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data.value));
+        console.log("Successfully synced database from Supabase.");
+      } else {
+        // Initialize Supabase with local data if remote key is missing
+        const localData = localStorage.getItem(STORAGE_KEY) ? JSON.parse(localStorage.getItem(STORAGE_KEY)) : seedData;
+        await supabase
+          .from('tracker_store')
+          .upsert({ key: STORAGE_KEY, value: localData });
+        console.log("Initialized Supabase tracker_store with default data.");
+      }
+    } catch (err) {
+      console.warn("Could not reach Supabase. Running in local fallback mode.", err);
+    }
+  },
+
+  syncUsersFromSupabase: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tracker_store')
+        .select('value')
+        .eq('key', USERS_KEY)
+        .single();
+      
+      if (data && data.value) {
+        localStorage.setItem(USERS_KEY, JSON.stringify(data.value));
+        console.log("Successfully synced users from Supabase.");
+      } else {
+        const defaultUsers = [
+          { username: 'admin', password: 'admin', name: 'Admin', role: 'Admin' },
+          { username: 'manager', password: 'manager', name: 'Manager', role: 'Manager' },
+          { username: 'member', password: 'member', name: 'Team Member', role: 'Team Member' },
+          { username: 'stakeholder', password: 'stakeholder', name: 'Stakeholder', role: 'Stakeholder' }
+        ];
+        const localUsers = localStorage.getItem(USERS_KEY) ? JSON.parse(localStorage.getItem(USERS_KEY)) : defaultUsers;
+        await supabase
+          .from('tracker_store')
+          .upsert({ key: USERS_KEY, value: localUsers });
+      }
+    } catch (err) {
+      console.warn("Could not sync users from Supabase.", err);
+    }
+  },
 
   // --- Projects ---
   getProjects: (role) => {
@@ -376,7 +438,6 @@ export const dataService = {
   },
 
   // --- Budget & Cost Figures (Genuinely Protected Calculations) ---
-  // Excluded/blocked entirely for non-authorized roles
   getBudgetSummary: (role) => {
     if (!hasBudgetAccess(role)) {
       return null;
@@ -386,7 +447,6 @@ export const dataService = {
     const resources = data.resources || [];
     const tasks = data.tasks || [];
     const projects = data.projects || [];
-    const modules = data.modules || [];
 
     // Helper to get resource hourly rate
     const getRate = (name) => {

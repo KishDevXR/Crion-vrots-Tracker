@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { supabase } from '../services/supabaseClient';
 
 const defaultUsers = [
   { username: 'admin', password: 'admin', name: 'Admin', role: 'Admin' },
@@ -6,6 +7,17 @@ const defaultUsers = [
   { username: 'member', password: 'member', name: 'Team Member', role: 'Team Member' },
   { username: 'stakeholder', password: 'stakeholder', name: 'Stakeholder', role: 'Stakeholder' }
 ];
+
+const pushUsersToSupabase = (users) => {
+  supabase
+    .from('tracker_store')
+    .upsert({ key: 'crion_vrots_users_list', value: users })
+    .then(({ error }) => {
+      if (error) {
+        console.error("Error syncing users to Supabase:", error);
+      }
+    });
+};
 
 export const useAuthStore = create((set, get) => {
   // Load initial auth state from localStorage or default
@@ -28,6 +40,14 @@ export const useAuthStore = create((set, get) => {
     isAuthenticated: !!savedUser,
     users: initialUsers,
     
+    // Allow reloading users from local storage after sync
+    reloadUsers: () => {
+      const updated = localStorage.getItem('crion_vrots_users_list');
+      if (updated) {
+        set({ users: JSON.parse(updated) });
+      }
+    },
+
     login: (username, password) => {
       const u = username.trim().toLowerCase();
       const p = password.trim().toLowerCase();
@@ -63,6 +83,7 @@ export const useAuthStore = create((set, get) => {
       const updated = [...get().users, user];
       localStorage.setItem('crion_vrots_users_list', JSON.stringify(updated));
       set({ users: updated });
+      pushUsersToSupabase(updated);
     },
 
     updateUser: (username, updatedFields) => {
@@ -71,6 +92,7 @@ export const useAuthStore = create((set, get) => {
       );
       localStorage.setItem('crion_vrots_users_list', JSON.stringify(updated));
       set({ users: updated });
+      pushUsersToSupabase(updated);
 
       // If the updated user is the current user, update session details too
       const currentUserObj = get().users.find(u => u.username.toLowerCase() === username.toLowerCase());
@@ -90,6 +112,7 @@ export const useAuthStore = create((set, get) => {
       const updated = get().users.filter(u => u.username.toLowerCase() !== username.toLowerCase());
       localStorage.setItem('crion_vrots_users_list', JSON.stringify(updated));
       set({ users: updated });
+      pushUsersToSupabase(updated);
     }
   };
 });
