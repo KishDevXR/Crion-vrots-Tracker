@@ -54,16 +54,25 @@ export const dataService = {
         .eq('key', STORAGE_KEY)
         .single();
       
+      if (error && error.code !== 'PGRST116') {
+        console.error("Supabase select error:", error);
+      }
+      
       if (data && data.value) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data.value));
         console.log("Successfully synced database from Supabase.");
       } else {
-        // Initialize Supabase with local data if remote key is missing
+        console.log("Data key not found in Supabase. Initializing...");
         const localData = localStorage.getItem(STORAGE_KEY) ? JSON.parse(localStorage.getItem(STORAGE_KEY)) : seedData;
-        await supabase
+        const { error: upsertError } = await supabase
           .from('tracker_store')
           .upsert({ key: STORAGE_KEY, value: localData });
-        console.log("Initialized Supabase tracker_store with default data.");
+        
+        if (upsertError) {
+          console.error("Supabase upsert error:", upsertError);
+        } else {
+          console.log("Initialized Supabase tracker_store with default data.");
+        }
       }
     } catch (err) {
       console.warn("Could not reach Supabase. Running in local fallback mode.", err);
@@ -78,10 +87,15 @@ export const dataService = {
         .eq('key', USERS_KEY)
         .single();
       
+      if (error && error.code !== 'PGRST116') {
+        console.error("Supabase select users error:", error);
+      }
+      
       if (data && data.value) {
         localStorage.setItem(USERS_KEY, JSON.stringify(data.value));
         console.log("Successfully synced users from Supabase.");
       } else {
+        console.log("Users key not found in Supabase. Initializing...");
         const defaultUsers = [
           { username: 'admin', password: 'admin', name: 'Admin', role: 'Admin' },
           { username: 'manager', password: 'manager', name: 'Manager', role: 'Manager' },
@@ -89,9 +103,15 @@ export const dataService = {
           { username: 'stakeholder', password: 'stakeholder', name: 'Stakeholder', role: 'Stakeholder' }
         ];
         const localUsers = localStorage.getItem(USERS_KEY) ? JSON.parse(localStorage.getItem(USERS_KEY)) : defaultUsers;
-        await supabase
+        const { error: upsertError } = await supabase
           .from('tracker_store')
           .upsert({ key: USERS_KEY, value: localUsers });
+        
+        if (upsertError) {
+          console.error("Supabase upsert users error:", upsertError);
+        } else {
+          console.log("Initialized Supabase users with default list.");
+        }
       }
     } catch (err) {
       console.warn("Could not sync users from Supabase.", err);
