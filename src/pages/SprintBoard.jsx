@@ -85,8 +85,8 @@ export default function SprintBoard({ onOpenTaskDrawer }) {
         )}
 
         <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
-          <Award size={48} className="text-slate-305 mx-auto mb-4" />
-          <h3 className="text-lg font-bold text-slate-805 dark:text-white">No Active Sprint</h3>
+          <Award size={48} className="text-slate-400 mx-auto mb-4" />
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white">No Active Sprint</h3>
           <p className="text-slate-500 text-sm mt-2 max-w-sm mx-auto leading-relaxed">
             There are currently no active sprints. Go to the <strong>Sprint Planning</strong> view to start a planned sprint.
           </p>
@@ -103,31 +103,34 @@ export default function SprintBoard({ onOpenTaskDrawer }) {
   const completedPoints = sprintTasks.filter(t => t.status === 'Done').reduce((sum, t) => sum + (t.storyPoints || 0), 0);
   const remainingPoints = totalPoints - completedPoints;
 
-  // Generate Burndown Chart Data (10-day sprint)
+  // Generate Burndown Chart Data — date-based for accuracy
   const generateBurndownData = () => {
     const data = [];
-    const days = 10;
-    
-    // Ideal burns down linearly from totalPoints to 0 over 10 days
-    const idealStep = totalPoints / (days - 1);
-    
-    // Current completed percent determines how far down the actual line burns
-    const donePercent = totalPoints > 0 ? completedPoints / totalPoints : 0;
-    
-    // Interpolate actual remaining points (for demo completeness)
-    const dayBurnSteps = [0, 0.05, 0.15, 0.20, 0.35, 0.50, 0.50, 0.65, 0.70, donePercent];
+    const start = new Date(activeSprint.startDate);
+    const end = new Date(activeSprint.endDate);
+    const totalDays = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1);
+    const today = new Date();
 
-    for (let i = 0; i < days; i++) {
+    // Clamp today within sprint window
+    const daysPassed = Math.min(
+      totalDays,
+      Math.max(0, Math.round((today - start) / (1000 * 60 * 60 * 24)))
+    );
+
+    const idealStep = totalPoints / (totalDays - 1 || 1);
+    const donePercent = totalPoints > 0 ? completedPoints / totalPoints : 0;
+
+    for (let i = 0; i < totalDays; i++) {
       const dayLabel = `Day ${i + 1}`;
       const idealRemaining = Math.max(0, Math.round((totalPoints - i * idealStep) * 10) / 10);
-      
-      // Plot actual burn up to Day 5 (assuming we are on Day 5 out of 10)
-      // or plot fully if completed
+
+      // Plot actual only up to today
       let actualRemaining = null;
-      if (i <= 4 || completedPoints === totalPoints) {
-        actualRemaining = Math.max(0, Math.round((totalPoints - (totalPoints * dayBurnSteps[i])) * 10) / 10);
+      if (i <= daysPassed) {
+        const burnFraction = i === daysPassed ? donePercent : (i / daysPassed) * donePercent;
+        actualRemaining = Math.max(0, Math.round((totalPoints - totalPoints * burnFraction) * 10) / 10);
       }
-      
+
       data.push({
         name: dayLabel,
         'Ideal Remaining': idealRemaining,
@@ -214,7 +217,7 @@ export default function SprintBoard({ onOpenTaskDrawer }) {
             <div className="grid grid-cols-2 gap-3 pt-2 text-center text-xs">
               <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl">
                 <span className="text-slate-400 block font-semibold uppercase text-[9px]">Committed Points</span>
-                <span className="text-lg font-bold text-slate-805 dark:text-white mt-1 block">{totalPoints} SP</span>
+                <span className="text-lg font-bold text-slate-900 dark:text-white mt-1 block">{totalPoints} SP</span>
               </div>
               <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl">
                 <span className="text-slate-400 block font-semibold uppercase text-[9px]">Remaining Points</span>

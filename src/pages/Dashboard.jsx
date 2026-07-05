@@ -3,6 +3,7 @@ import { useProjectStore } from '../store/projectStore';
 import { useTaskStore } from '../store/taskStore';
 import { useResourceStore } from '../store/resourceStore';
 import { useAuthStore } from '../store/authStore';
+import { useSprintStore } from '../store/sprintStore';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -29,6 +30,7 @@ export default function Dashboard({ onOpenTaskDrawer }) {
   const { projects, fetchProjects } = useProjectStore();
   const { tasks, fetchTasks, deliverables, fetchDeliverables } = useTaskStore();
   const { resources, fetchResources, hiringRequests, fetchHiringRequests } = useResourceStore();
+  const { sprints, fetchSprints } = useSprintStore();
 
   useEffect(() => {
     fetchProjects(currentRole);
@@ -36,6 +38,7 @@ export default function Dashboard({ onOpenTaskDrawer }) {
     fetchResources(currentRole);
     fetchHiringRequests();
     fetchDeliverables();
+    fetchSprints();
   }, [currentRole, currentUser]);
 
   // Calculations for KPIs
@@ -53,9 +56,13 @@ export default function Dashboard({ onOpenTaskDrawer }) {
     ? Math.round(resources.reduce((sum, r) => sum + (r.utilizationPercent || 0), 0) / resources.length) 
     : 0;
 
-  // Deliverables This Month
-  const currentMonth = "July 2026"; // Mock Month
+  // Deliverables This Month — dynamic from real current date
+  const now = new Date();
+  const currentMonth = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
   const monthlyDeliverables = deliverables.filter(d => d.month === currentMonth).length;
+
+  // Active sprint for banner
+  const activeSprint = sprints.find(s => s.status === 'Active');
 
   // Chart Data 1: Tasks by Status
   const statusCounts = tasks.reduce((acc, task) => {
@@ -88,13 +95,16 @@ export default function Dashboard({ onOpenTaskDrawer }) {
     };
   });
 
-  // Chart Data 3: Project Progress (horizontal bar per project % complete)
-  // Calculate average completion of modules under each project
+  // Chart Data 3: Project Progress — computed from real task completion rates
   const projectProgressData = projects.map(proj => {
-    return {
-      name: proj.name,
-      'Progress': proj.status === 'Completed' ? 100 : (proj.status === 'On Hold' ? 30 : 65) // Seed averages or dynamic calc
-    };
+    const projTasks = tasks.filter(t => t.projectId === proj.id);
+    if (proj.status === 'Completed') return { name: proj.name, 'Progress': 100 };
+    if (projTasks.length === 0) return { name: proj.name, 'Progress': 0 };
+    const doneTasks = projTasks.filter(t => t.status === 'Done').length;
+    const avgProgress = Math.round(
+      projTasks.reduce((sum, t) => sum + (t.progressPercent || 0), 0) / projTasks.length
+    );
+    return { name: proj.name, 'Progress': avgProgress };
   });
 
   // Recent activity: get tasks sorted by activity log timestamp
@@ -130,10 +140,12 @@ export default function Dashboard({ onOpenTaskDrawer }) {
             Here's the VR/Unity operations status for today. You are viewing with the <strong>{currentRole}</strong> role.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs bg-slate-50 dark:bg-slate-800 px-3.5 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 font-medium text-slate-600 dark:text-slate-400">
-          <Clock size={14} className="text-blue-500" />
-          <span>Sprint 12 is Active</span>
-        </div>
+        {activeSprint && (
+          <div className="flex items-center gap-2 text-xs bg-blue-50 dark:bg-blue-950/30 px-3.5 py-1.5 rounded-lg border border-blue-100 dark:border-blue-900/40 font-medium text-blue-600 dark:text-blue-400">
+            <Clock size={14} className="text-blue-500" />
+            <span>{activeSprint.name} is Active</span>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards Grid */}

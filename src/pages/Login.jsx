@@ -14,21 +14,19 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Artificial delay to make it feel premium
-    setTimeout(() => {
-      const res = login(username, password);
+    try {
+      await login(username, password);
       setLoading(false);
-      if (res.success) {
-        navigate('/');
-      } else {
-        setError(res.error);
-      }
-    }, 600);
+      navigate('/');
+    } catch (err) {
+      setLoading(false);
+      setError(err.message || 'Invalid username or password');
+    }
   };
 
   return (
@@ -101,24 +99,36 @@ export default function Login() {
           <div className="border-t border-slate-100 dark:border-slate-850 pt-4 space-y-2">
             <div className="flex items-center gap-1.5 text-slate-400 dark:text-slate-500 text-[10px] uppercase font-bold tracking-wider">
               <HelpCircle size={12} />
-              Sandbox Workspace Access
+              Sandbox Workspace Access (Click to auto-fill)
             </div>
             <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60">
+              <div 
+                onClick={() => { setUsername('admin'); setPassword('admin123'); }}
+                className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
                 <span className="font-bold block text-slate-700 dark:text-slate-300">Admin</span>
-                <span>admin / admin</span>
+                <span>admin / admin123</span>
               </div>
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60">
+              <div 
+                onClick={() => { setUsername('manager'); setPassword('manager123'); }}
+                className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
                 <span className="font-bold block text-slate-700 dark:text-slate-300">Manager</span>
-                <span>manager / manager</span>
+                <span>manager / manager123</span>
               </div>
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60">
+              <div 
+                onClick={() => { setUsername('member'); setPassword('member123'); }}
+                className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
                 <span className="font-bold block text-slate-700 dark:text-slate-300">Team Member</span>
-                <span>member / member</span>
+                <span>member / member123</span>
               </div>
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60">
+              <div 
+                onClick={() => { setUsername('stakeholder'); setPassword('stakeholder123'); }}
+                className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
                 <span className="font-bold block text-slate-700 dark:text-slate-300">Stakeholder</span>
-                <span>stakeholder / stakeholder</span>
+                <span>stakeholder / stakeholder123</span>
               </div>
             </div>
           </div>

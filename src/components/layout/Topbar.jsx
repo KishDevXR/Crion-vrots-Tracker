@@ -5,13 +5,14 @@ import { useProjectStore } from '../../store/projectStore';
 import { useTaskStore } from '../../store/taskStore';
 import { useSprintStore } from '../../store/sprintStore';
 import { useResourceStore } from '../../store/resourceStore';
+import { useNotificationStore } from '../../store/notificationStore';
 import { 
   Bell, 
   Search, 
   Sun, 
   Moon, 
-  ChevronDown, 
-  User, 
+  ChevronDown,
+  LogOut,
   Folder, 
   CheckSquare, 
   Users, 
@@ -25,11 +26,12 @@ import Avatar from '../common/Avatar';
 
 export default function Topbar({ onOpenTaskDrawer }) {
   const navigate = useNavigate();
-  const { currentRole, currentUser, setRole } = useAuthStore();
-  const { projects } = useProjectStore();
+  const { currentRole, currentUser, currentUserId, setRole, logout } = useAuthStore();
+  const { projects, fetchProjects } = useProjectStore();
   const { tasks, fetchTasks } = useTaskStore();
   const { sprints } = useSprintStore();
   const { resources, fetchResources } = useResourceStore();
+  const { notifications, unreadCount, markAllRead, clearAll, markRead } = useNotificationStore();
 
   const [darkMode, setDarkMode] = useState(() => {
     return document.documentElement.classList.contains('dark') || 
@@ -45,42 +47,6 @@ export default function Topbar({ onOpenTaskDrawer }) {
   const searchRef = useRef(null);
   const roleRef = useRef(null);
   const notifyRef = useRef(null);
-
-  // Mock Notifications list
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: 'blocker',
-      title: 'Blocker Flagged',
-      desc: 'Jana flagged a blocker on "Verify control panel dial rotation values"',
-      time: '10m ago',
-      unread: true,
-      icon: AlertTriangle,
-      color: 'text-red-500 bg-red-50 dark:bg-red-950/20'
-    },
-    {
-      id: 2,
-      type: 'comment',
-      title: 'New Comment',
-      desc: 'Admin commented on "Debug latency spike"',
-      time: '1h ago',
-      unread: true,
-      icon: MessageSquare,
-      color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/20'
-    },
-    {
-      id: 3,
-      type: 'sprint',
-      title: 'Sprint Started',
-      desc: 'Sprint 12 has been set to Active',
-      time: '2d ago',
-      unread: false,
-      icon: Play,
-      color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20'
-    }
-  ]);
-
-  const unreadCount = notifications.filter(n => n.unread).length;
 
   // Sync dark mode class
   useEffect(() => {
@@ -166,11 +132,11 @@ export default function Topbar({ onOpenTaskDrawer }) {
   };
 
   const markAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, unread: false })));
+    markAllRead(currentUserId);
   };
 
   const clearNotifications = () => {
-    setNotifications([]);
+    clearAll(currentUserId);
   };
 
   return (
@@ -248,7 +214,7 @@ export default function Topbar({ onOpenTaskDrawer }) {
           {showRoleDropdown && (
             <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 py-1 divide-y divide-slate-100 dark:divide-slate-800">
               <div className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
-                Select user role to test permissions
+                Switch active role
               </div>
               <div className="py-1">
                 {[
@@ -262,9 +228,10 @@ export default function Topbar({ onOpenTaskDrawer }) {
                     onClick={() => {
                       setRole(roleObj.name, roleObj.user);
                       setShowRoleDropdown(false);
-                      // Trigger data reload depending on components
+                      // Reload all stores when role changes
                       fetchTasks(roleObj.name, roleObj.user);
                       fetchResources(roleObj.name);
+                      fetchProjects(roleObj.name);
                     }}
                     className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between ${
                       currentRole === roleObj.name ? 'text-blue-600 font-semibold dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/20' : 'text-slate-700 dark:text-slate-300'
@@ -326,22 +293,31 @@ export default function Topbar({ onOpenTaskDrawer }) {
                   </div>
                 ) : (
                   notifications.map((n) => {
-                    const IconComp = n.icon;
+                    const IconComp = n.type === 'blocker' ? AlertTriangle : n.type === 'comment' ? MessageSquare : Bell;
+                    const colorClass = n.type === 'blocker' 
+                      ? 'text-red-500 bg-red-50 dark:bg-red-950/20' 
+                      : n.type === 'comment' 
+                        ? 'text-blue-500 bg-blue-50 dark:bg-blue-950/20' 
+                        : 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20';
+
                     return (
                       <div 
                         key={n.id} 
-                        className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors flex gap-3 ${n.unread ? 'bg-blue-50/20' : ''}`}
+                        onClick={() => !n.is_read && markRead(n.id)}
+                        className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors flex gap-3 cursor-pointer ${!n.is_read ? 'bg-blue-50/20' : ''}`}
                       >
-                        <div className={`p-2 rounded-lg shrink-0 ${n.color}`}>
+                        <div className={`p-2 rounded-lg shrink-0 ${colorClass}`}>
                           <IconComp size={16} />
                         </div>
                         <div className="flex-1">
                           <div className="text-xs font-semibold text-slate-900 dark:text-white flex items-center justify-between">
                             <span>{n.title}</span>
-                            <span className="text-[10px] text-slate-400 font-normal">{n.time}</span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
                           </div>
                           <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                            {n.desc}
+                            {n.body}
                           </p>
                         </div>
                       </div>
@@ -353,7 +329,7 @@ export default function Topbar({ onOpenTaskDrawer }) {
           )}
         </div>
 
-        {/* User Info Avatar */}
+        {/* User Info Avatar + Logout */}
         <div className="flex items-center gap-3 pl-2 border-l border-slate-200 dark:border-slate-800">
           <Avatar name={currentUser} size="sm" />
           <div className="hidden md:block text-left">
@@ -364,6 +340,18 @@ export default function Topbar({ onOpenTaskDrawer }) {
               {currentRole}
             </div>
           </div>
+          <button
+            onClick={() => {
+              if (window.confirm('Are you sure you want to log out?')) {
+                logout();
+                navigate('/login');
+              }
+            }}
+            title="Logout"
+            className="p-2 text-slate-400 hover:text-red-500 dark:hover:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+          >
+            <LogOut size={18} />
+          </button>
         </div>
 
       </div>

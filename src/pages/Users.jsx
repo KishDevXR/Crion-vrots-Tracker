@@ -16,7 +16,12 @@ import {
 } from 'lucide-react';
 
 export default function Users() {
-  const { users, addUser, updateUser, deleteUser, currentUser } = useAuthStore();
+  const { users, fetchUsers, addUser, updateUser, deleteUser, currentUser } = useAuthStore();
+  
+  React.useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   

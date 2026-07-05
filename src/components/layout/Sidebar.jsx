@@ -26,6 +26,7 @@ export default function Sidebar() {
   const navItems = [
     { name: 'Dashboard', path: '/', icon: Home, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
     { name: 'Projects', path: '/projects', icon: Folder, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
+    { name: 'Gantt Timeline', path: '/gantt', icon: CalendarRange, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
     { name: 'Task Board', path: '/task-board', icon: LayoutGrid, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
     { name: 'Backlog', path: '/backlog', icon: Layers, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
     { name: 'Sprint Planning', path: '/sprint-planning', icon: CalendarRange, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },

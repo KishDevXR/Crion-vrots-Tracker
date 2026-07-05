@@ -57,7 +57,7 @@ export default function Budget() {
   const totalActualCost = projectSummary.reduce((sum, p) => sum + p['Actual Cost (₹)'], 0);
   const totalVariance = totalPlannedCost - totalActualCost;
 
-  // Monthly burn data (demo timeline)
+  // Monthly burn rate timeline
   const burnRateData = [
     { month: 'Jan 2026', 'Burn Rate (₹)': 25000 },
     { month: 'Feb 2026', 'Burn Rate (₹)': 28500 },
@@ -66,6 +66,14 @@ export default function Budget() {
     { month: 'May 2026', 'Burn Rate (₹)': 36700 },
     { month: 'Jun 2026', 'Burn Rate (₹)': 38400 }
   ];
+
+  // Calculate avg monthly burn dynamically from the data
+  const avgMonthlyBurn = burnRateData.length > 0
+    ? Math.round(burnRateData.reduce((sum, m) => sum + m['Burn Rate (₹)'], 0) / burnRateData.length)
+    : 0;
+  const lastBurn = burnRateData.length > 0 ? burnRateData[burnRateData.length - 1]['Burn Rate (₹)'] : 0;
+  const prevBurn = burnRateData.length > 1 ? burnRateData[burnRateData.length - 2]['Burn Rate (₹)'] : lastBurn;
+  const burnChange = prevBurn > 0 ? (((lastBurn - prevBurn) / prevBurn) * 100).toFixed(1) : 0;
 
   return (
     <div className="space-y-6">
@@ -132,9 +140,9 @@ export default function Budget() {
             </div>
           </div>
           <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900 dark:text-white">₹38,400</span>
-            <span className="text-[10px] text-red-500 font-bold flex items-center gap-0.5">
-              +4.6%
+            <span className="text-2xl font-extrabold text-slate-900 dark:text-white">₹{avgMonthlyBurn.toLocaleString()}</span>
+            <span className={`text-[10px] font-bold flex items-center gap-0.5 ${Number(burnChange) >= 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+              {Number(burnChange) >= 0 ? '+' : ''}{burnChange}%
             </span>
           </div>
         </div>

@@ -10,6 +10,7 @@ import { useSprintStore } from '../../store/sprintStore';
 import { useResourceStore } from '../../store/resourceStore';
 import { getTaskEditableFields, canUpdateTask } from '../../utils/permissionUtils';
 import { formatDate } from '../../utils/dateUtils';
+import { notificationService } from '../../services/notificationService';
 import { 
   Calendar, 
   Clock, 
@@ -20,40 +21,47 @@ import {
   TrendingUp, 
   CheckSquare, 
   AlertCircle,
-  Paperclip
+  Paperclip,
+  Trash2
 } from 'lucide-react';
 
 export default function TaskDetailDrawer({ task, isOpen, onClose }) {
-  if (!task) return null;
-
   const { currentRole, currentUser } = useAuthStore();
-  const { updateTask, addCommentToTask, changeTaskStatus } = useTaskStore();
+  const { tasks, addTask, updateTask, addCommentToTask, changeTaskStatus, addDependency, removeDependency, logTime } = useTaskStore();
   const { projects } = useProjectStore();
   const { sprints } = useSprintStore();
   const { resources } = useResourceStore();
 
-  const editableFields = getTaskEditableFields(currentRole, task, currentUser);
-  const canModify = canUpdateTask(currentRole, task, currentUser);
-
-  // Form states
-  const [description, setDescription] = useState(task.description);
-  const [status, setStatus] = useState(task.status);
-  const [priority, setPriority] = useState(task.priority);
-  const [storyPoints, setStoryPoints] = useState(task.storyPoints || 0);
-  const [plannedHours, setPlannedHours] = useState(task.plannedHours || 0);
-  const [actualHours, setActualHours] = useState(task.actualHours || 0);
-  const [progressPercent, setProgressPercent] = useState(task.progressPercent || 0);
-  const [resourceName, setResourceName] = useState(task.resourceName || '');
-  const [epicId, setEpicId] = useState(task.epicId || '');
-  const [projectId, setProjectId] = useState(task.projectId || '');
-  const [moduleId, setModuleId] = useState(task.moduleId || '');
-  const [remarks, setRemarks] = useState(task.remarks || '');
+  // Form states — all hooks must be declared unconditionally before any early return
+  const [description, setDescription] = useState(task?.description ?? '');
+  const [status, setStatus] = useState(task?.status ?? 'Not Started');
+  const [priority, setPriority] = useState(task?.priority ?? 'Medium');
+  const [storyPoints, setStoryPoints] = useState(task?.storyPoints ?? 0);
+  const [plannedHours, setPlannedHours] = useState(task?.plannedHours ?? 0);
+  const [actualHours, setActualHours] = useState(task?.actualHours ?? 0);
+  const [progressPercent, setProgressPercent] = useState(task?.progressPercent ?? 0);
+  const [resourceName, setResourceName] = useState(task?.resourceName ?? '');
+  const [epicId, setEpicId] = useState(task?.epicId ?? '');
+  const [projectId, setProjectId] = useState(task?.projectId ?? '');
+  const [moduleId, setModuleId] = useState(task?.moduleId ?? '');
+  const [remarks, setRemarks] = useState(task?.remarks ?? '');
   const [newComment, setNewComment] = useState('');
+  const [newSubtaskText, setNewSubtaskText] = useState('');
+  const [selectedDepId, setSelectedDepId] = useState('');
+  const [logHours, setLogHours] = useState('');
+  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+  const [logDesc, setLogDesc] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [tab, setTab] = useState('details'); // 'details' | 'history'
+  const [attachments, setAttachments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  const editableFields = task ? getTaskEditableFields(currentRole, task, currentUser) : {};
+  const canModify = task ? canUpdateTask(currentRole, task, currentUser) : false;
 
   // Update fields when task changes
   useEffect(() => {
+    if (!task) return;
     setDescription(task.description);
     setStatus(task.status);
     setPriority(task.priority);
@@ -68,6 +76,9 @@ export default function TaskDetailDrawer({ task, isOpen, onClose }) {
     setRemarks(task.remarks || '');
     setIsEditing(false);
   }, [task]);
+
+  // Safe early return AFTER all hooks
+  if (!task) return null;
 
   const handleSave = () => {
     // Collect updated task info
@@ -103,6 +114,112 @@ export default function TaskDetailDrawer({ task, isOpen, onClose }) {
     if (!newComment.trim()) return;
     addCommentToTask(task.id, newComment.trim(), currentUser);
     setNewComment('');
+  };
+
+  const handleAddSubtask = async (e) => {
+    e.preventDefault();
+    if (!newSubtaskText.trim()) return;
+    
+    await addTask({
+      projectId: task.projectId,
+      parentTaskId: task.id,
+      description: newSubtaskText.trim(),
+      status: 'Not Started',
+      plannedHours: 0,
+      actualHours: 0,
+      progressPercent: 0
+    }, currentUser);
+
+    setNewSubtaskText('');
+  };
+
+  const handleToggleSubtask = async (sub) => {
+    const newStatus = sub.status === 'Done' ? 'Not Started' : 'Done';
+    const newProgress = newStatus === 'Done' ? 100 : 0;
+    
+    await updateTask({
+      ...sub,
+      status: newStatus,
+      progressPercent: newProgress
+    }, currentUser);
+
+    // Recalculate parent progress
+    const siblings = task.subtasks || [];
+    const updatedSiblings = siblings.map(s => s.id === sub.id ? { ...s, status: newStatus } : s);
+    const completedCount = updatedSiblings.filter(s => s.status === 'Done').length;
+    const parentProgress = Math.round((completedCount / updatedSiblings.length) * 100);
+
+    await updateTask({
+      ...task,
+      progressPercent: parentProgress,
+      status: parentProgress === 100 ? 'Done' : parentProgress > 0 ? 'In Progress' : task.status
+    }, currentUser);
+  };
+
+  const handleAddDependency = async () => {
+    if (!selectedDepId) return;
+    await addDependency(task.id, selectedDepId);
+    setSelectedDepId('');
+  };
+
+  const handleRemoveDependency = async (dependsOnId) => {
+    await removeDependency(task.id, dependsOnId);
+  };
+
+  const handleLogTime = async (e) => {
+    e.preventDefault();
+    if (!logHours || isNaN(Number(logHours)) || Number(logHours) <= 0) return;
+
+    await logTime(task.id, {
+      userName: currentUser,
+      hours: Number(logHours),
+      loggedDate: logDate,
+      description: logDesc.trim() || 'Work logged'
+    });
+
+    setLogHours('');
+    setLogDesc('');
+  };
+
+  const loadAttachments = async () => {
+    if (!task?.id) return;
+    try {
+      const data = await notificationService.getAttachments(task.id);
+      setAttachments(data);
+    } catch (err) {
+      console.error('Failed to load attachments:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (task?.id) {
+      loadAttachments();
+    }
+  }, [task?.id]);
+
+  const handleUploadAttachment = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !task?.id) return;
+    
+    setUploading(true);
+    try {
+      await notificationService.uploadAttachment(task.id, file, currentUser);
+      await loadAttachments();
+    } catch (err) {
+      alert(`Upload failed: ${err.message || err}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (att) => {
+    if (!window.confirm(`Are you sure you want to delete ${att.filename}?`)) return;
+    try {
+      await notificationService.deleteAttachment(att.id, att.storage_path);
+      await loadAttachments();
+    } catch (err) {
+      alert(`Delete failed: ${err.message || err}`);
+    }
   };
 
   // Find Project name
@@ -361,23 +478,232 @@ export default function TaskDetailDrawer({ task, isOpen, onClose }) {
                 </p>
               )}
             </div>
+
+            {/* Time Logging */}
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Time Logs</span>
+              
+              {/* Form to log time */}
+              {canModify && (
+                <form onSubmit={handleLogTime} className="bg-slate-100/50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-500 uppercase">Hours Spent</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        required
+                        placeholder="e.g. 2.5"
+                        value={logHours}
+                        onChange={(e) => setLogHours(e.target.value)}
+                        className="w-full mt-1 text-xs px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-500 uppercase">Date</label>
+                      <input
+                        type="date"
+                        required
+                        value={logDate}
+                        onChange={(e) => setLogDate(e.target.value)}
+                        className="w-full mt-1 text-xs px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-500 uppercase">What did you do?</label>
+                    <div className="flex gap-2 mt-1">
+                      <input
+                        type="text"
+                        placeholder="Describe your work..."
+                        value={logDesc}
+                        onChange={(e) => setLogDesc(e.target.value)}
+                        className="flex-1 text-xs px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                      />
+                      <Button type="submit" variant="primary" size="sm">Log</Button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* Time logs list */}
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {task.timeLogs && task.timeLogs.length > 0 ? (
+                  task.timeLogs.map((log) => (
+                    <div key={log.id} className="flex justify-between items-start text-xs p-2 bg-slate-50 dark:bg-slate-850 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div>
+                        <span className="font-semibold text-slate-900 dark:text-white">{log.user_name || 'Someone'}</span>
+                        <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">{log.description}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-blue-600 dark:text-blue-400">{log.hours} hrs</span>
+                        <span className="block text-[9px] text-slate-400 mt-0.5">{formatDate(log.logged_date)}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500 italic">No hours logged yet.</p>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Attachments Stub */}
+          {/* Subtasks Section */}
           <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
             <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Paperclip size={14} />
-              Attachments (Stubs)
+              <CheckSquare size={14} />
+              Subtasks
             </h3>
+            
+            {canModify && (
+              <form onSubmit={handleAddSubtask} className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  placeholder="Add a subtask..."
+                  value={newSubtaskText}
+                  onChange={(e) => setNewSubtaskText(e.target.value)}
+                  className="flex-1 text-xs px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                />
+                <Button type="submit" variant="secondary" size="sm">Add</Button>
+              </form>
+            )}
+
+            <div className="space-y-2">
+              {task.subtasks && task.subtasks.length > 0 ? (
+                task.subtasks.map((sub) => (
+                  <div key={sub.id} className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-850 rounded-lg border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={sub.status === 'Done'}
+                        onChange={() => handleToggleSubtask(sub)}
+                        disabled={!canModify}
+                        className="rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                      />
+                      <span className={`text-xs ${sub.status === 'Done' ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-350'}`}>
+                        {sub.description}
+                      </span>
+                    </div>
+                    {sub.resourceName && (
+                      <span className="text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded">
+                        {sub.resourceName}
+                      </span>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-505 dark:text-slate-500 italic">No subtasks yet.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Dependencies Section */}
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
+            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <AlertCircle size={14} />
+              Dependencies (Blocked By)
+            </h3>
+
+            {canModify && (
+              <div className="flex gap-2 mb-3">
+                <select
+                  value={selectedDepId}
+                  onChange={(e) => setSelectedDepId(e.target.value)}
+                  className="flex-1 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-slate-900 dark:text-white"
+                >
+                  <option value="">Select a task that blocks this...</option>
+                  {tasks
+                    .filter(t => t.id !== task.id && t.projectId === task.projectId)
+                    .map(t => (
+                      <option key={t.id} value={t.id}>{t.description} ({t.status})</option>
+                    ))}
+                </select>
+                <Button onClick={handleAddDependency} variant="secondary" size="sm">Block</Button>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              {task.dependencies && task.dependencies.length > 0 ? (
+                task.dependencies.map((dep) => {
+                  const blockingTask = tasks.find(t => t.id === dep.depends_on_id);
+                  return (
+                    <div key={dep.id} className="flex items-center justify-between text-xs p-1.5 bg-red-50 dark:bg-red-950/20 text-red-750 dark:text-red-400 rounded-lg border border-red-100 dark:border-red-900/40">
+                      <span className="truncate">{blockingTask?.description || 'Unknown Task'} ({blockingTask?.status || 'N/A'})</span>
+                      {canModify && (
+                        <button 
+                          onClick={() => handleRemoveDependency(dep.depends_on_id)}
+                          className="text-[10px] hover:underline uppercase font-bold text-red-655 dark:text-red-400"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-slate-505 dark:text-slate-500 italic">No blocking dependencies.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Attachments Section */}
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
+            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5 justify-between">
+              <span className="flex items-center gap-1.5">
+                <Paperclip size={14} />
+                Attachments
+              </span>
+              {uploading && <span className="text-[10px] text-blue-500 animate-pulse font-bold lowercase">Uploading...</span>}
+            </h3>
+
+            {/* Upload Button */}
+            {canModify && (
+              <div className="flex items-center justify-center w-full">
+                <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-slate-200 border-dashed rounded-lg cursor-pointer bg-slate-50 dark:hover:bg-slate-850 dark:bg-slate-900/50 hover:bg-slate-100 dark:border-slate-800">
+                  <div className="flex flex-col items-center justify-center pt-3 pb-3">
+                    <Paperclip className="w-6 h-6 mb-1 text-slate-400" />
+                    <p className="text-xs text-slate-500 dark:text-slate-400"><span className="font-semibold text-blue-500">Click to upload</span> a file</p>
+                  </div>
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    onChange={handleUploadAttachment} 
+                    disabled={uploading}
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* Attachments list */}
             <div className="grid grid-cols-2 gap-2">
-              <a href="#" className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800 border border-slate-200/50 dark:border-slate-800 rounded-lg text-xs text-slate-700 dark:text-slate-300 transition-colors">
-                <span className="truncate">insulin_pen_model_wireframe.fbx</span>
-                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold uppercase">Download</span>
-              </a>
-              <a href="#" className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800 border border-slate-200/50 dark:border-slate-800 rounded-lg text-xs text-slate-700 dark:text-slate-300 transition-colors">
-                <span className="truncate">quest2_perf_logs.txt</span>
-                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold uppercase">Download</span>
-              </a>
+              {attachments.length > 0 ? (
+                attachments.map((att) => (
+                  <div 
+                    key={att.id} 
+                    className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-850 border border-slate-200/50 dark:border-slate-800 rounded-lg text-xs text-slate-700 dark:text-slate-300 group"
+                  >
+                    <a 
+                      href={att.publicUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="truncate hover:underline text-slate-700 dark:text-slate-300 font-medium"
+                      title={att.filename}
+                    >
+                      {att.filename}
+                    </a>
+                    {canModify && (
+                      <button 
+                        onClick={() => handleDeleteAttachment(att)}
+                        className="text-slate-400 hover:text-red-500 transition-colors p-0.5 rounded"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500 italic col-span-2">No attachments uploaded yet.</p>
+              )}
             </div>
           </div>
 

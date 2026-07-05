@@ -4,7 +4,6 @@ import Sidebar from './components/layout/Sidebar';
 import Topbar from './components/layout/Topbar';
 import TaskDetailDrawer from './components/common/TaskDetailDrawer';
 import RoleGuard from './components/common/RoleGuard';
-import { dataService } from './services/dataService';
 
 // Pages
 import Login from './pages/Login';
@@ -20,27 +19,51 @@ import Hiring from './pages/Hiring';
 import Reports from './pages/Reports';
 import Budget from './pages/Budget';
 import Users from './pages/Users';
+import GanttView from './pages/GanttView';
 import { useAuthStore } from './store/authStore';
 
+import { notificationService } from './services/notificationService';
+import { useTaskStore } from './store/taskStore';
+import { useNotificationStore } from './store/notificationStore';
+
 function AppContent() {
-  const { isAuthenticated, reloadUsers } = useAuthStore();
+  const { isLoggedIn, isLoading, currentUserId, initSession } = useAuthStore();
+  const { handleRealtimeTaskChange } = useTaskStore();
+  const { addLiveNotification, fetchNotifications } = useNotificationStore();
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
 
-  const [isSyncing, setIsSyncing] = useState(true);
   const [activeTask, setActiveTask] = useState(null);
 
+  // Initialize session on mount
   useEffect(() => {
-    const syncData = async () => {
-      await dataService.syncFromSupabase();
-      await dataService.syncUsersFromSupabase();
-      reloadUsers();
-      setIsSyncing(false);
-    };
-    syncData();
-  }, [reloadUsers]);
+    initSession();
+  }, [initSession]);
 
-  if (isSyncing) {
+  // Set up real-time subscriptions and load notifications when logged in
+  useEffect(() => {
+    if (!isLoggedIn || !currentUserId) return;
+
+    // Load initial user notifications
+    fetchNotifications(currentUserId);
+
+    // Subscribe to task updates
+    const taskSub = notificationService.subscribeToTasks((payload) => {
+      handleRealtimeTaskChange(payload);
+    });
+
+    // Subscribe to incoming notifications
+    const notifSub = notificationService.subscribeToNotifications(currentUserId, (notif) => {
+      addLiveNotification(notif);
+    });
+
+    return () => {
+      taskSub.unsubscribe();
+      notifSub.unsubscribe();
+    };
+  }, [isLoggedIn, currentUserId, handleRealtimeTaskChange, addLiveNotification, fetchNotifications]);
+
+  if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white">
         <div className="flex flex-col items-center p-8 bg-slate-900/60 border border-slate-800 rounded-2xl shadow-2xl backdrop-blur-md max-w-sm w-full text-center">
@@ -48,20 +71,20 @@ function AppContent() {
             <div className="absolute inset-0 rounded-full border-4 border-slate-850"></div>
             <div className="absolute inset-0 rounded-full border-4 border-t-blue-500 animate-spin"></div>
           </div>
-          <h2 className="text-xl font-bold mb-2">Connecting to Database</h2>
-          <p className="text-sm text-slate-400">Synchronizing tracker changes across devices...</p>
+          <h2 className="text-xl font-bold mb-2">Connecting to Workspace</h2>
+          <p className="text-sm text-slate-400">Authenticating operations board...</p>
         </div>
       </div>
     );
   }
 
   // Enforce redirection to login screen if not authenticated
-  if (!isAuthenticated && !isLoginPage) {
+  if (!isLoggedIn && !isLoginPage) {
     return <Navigate to="/login" replace />;
   }
 
   // Enforce redirection to home if already authenticated and accessing login screen
-  if (isAuthenticated && isLoginPage) {
+  if (isLoggedIn && isLoginPage) {
     return <Navigate to="/" replace />;
   }
 
@@ -92,6 +115,7 @@ function AppContent() {
               <Route path="/" element={<Dashboard onOpenTaskDrawer={setActiveTask} />} />
               <Route path="/projects" element={<Projects />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
+              <Route path="/gantt" element={<GanttView />} />
               <Route path="/task-board" element={<TaskBoard onOpenTaskDrawer={setActiveTask} />} />
               <Route path="/backlog" element={<Backlog onOpenTaskDrawer={setActiveTask} />} />
               <Route path="/sprint-planning" element={<SprintPlanning />} />

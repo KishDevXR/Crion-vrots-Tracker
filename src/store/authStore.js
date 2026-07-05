@@ -1,118 +1,110 @@
 import { create } from 'zustand';
-import { supabase } from '../services/supabaseClient';
+import { authService } from '../services/authService';
 
-const defaultUsers = [
-  { username: 'admin', password: 'admin', name: 'Admin', role: 'Admin' },
-  { username: 'manager', password: 'manager', name: 'Manager', role: 'Manager' },
-  { username: 'member', password: 'member', name: 'Team Member', role: 'Team Member' },
-  { username: 'stakeholder', password: 'stakeholder', name: 'Stakeholder', role: 'Stakeholder' }
-];
+export const useAuthStore = create((set, get) => ({
+  currentRole: null,
+  currentUser: null,
+  currentUserId: null,
+  isLoggedIn: false,
+  isLoading: true,
+  users: [],
 
-const pushUsersToSupabase = (users) => {
-  supabase
-    .from('tracker_store')
-    .upsert({ key: 'crion_vrots_users_list', value: users }, { onConflict: 'key' })
-    .then(({ error }) => {
-      if (error) {
-        console.error("Error syncing users to Supabase:", error);
-      }
-    });
-};
-
-export const useAuthStore = create((set, get) => {
-  // Load initial auth state from localStorage or default
-  const savedRole = localStorage.getItem('crion_vrots_role');
-  let savedUser = localStorage.getItem('crion_vrots_user');
-  if (savedUser === 'Kaleeshwaren') {
-    savedUser = 'Admin';
-    localStorage.setItem('crion_vrots_user', 'Admin');
-  }
-
-  const storedUsers = localStorage.getItem('crion_vrots_users_list');
-  const initialUsers = storedUsers ? JSON.parse(storedUsers) : defaultUsers;
-  if (!storedUsers) {
-    localStorage.setItem('crion_vrots_users_list', JSON.stringify(defaultUsers));
-  }
-
-  return {
-    currentRole: savedRole || 'Admin',
-    currentUser: savedUser || 'Admin',
-    isAuthenticated: !!savedUser,
-    users: initialUsers,
-    
-    // Allow reloading users from local storage after sync
-    reloadUsers: () => {
-      const updated = localStorage.getItem('crion_vrots_users_list');
-      if (updated) {
-        set({ users: JSON.parse(updated) });
-      }
-    },
-
-    login: (username, password) => {
-      const u = username.trim().toLowerCase();
-      const p = password.trim().toLowerCase();
-      
-      const found = get().users.find(
-        x => x.username.toLowerCase() === u && x.password.toLowerCase() === p
-      );
-      
-      if (found) {
-        localStorage.setItem('crion_vrots_role', found.role);
-        localStorage.setItem('crion_vrots_user', found.name);
-        set({ currentRole: found.role, currentUser: found.name, isAuthenticated: true });
-        return { success: true };
+  // Called on app mount — restore session from Supabase
+  initSession: async () => {
+    set({ isLoading: true });
+    try {
+      const result = await authService.getSession();
+      if (result?.profile) {
+        set({
+          isLoggedIn: true,
+          currentRole: result.profile.role,
+          currentUser: result.profile.name,
+          currentUserId: result.profile.id,
+          isLoading: false,
+        });
+        // Fetch user list if admin
+        if (result.profile.role === 'Admin') {
+          await get().fetchUsers();
+        }
       } else {
-        return { success: false, error: 'Invalid credentials. Hint: check username and password.' };
+        set({ isLoggedIn: false, isLoading: false });
       }
-    },
-
-    setRole: (role, user) => {
-      const finalUser = user || (role === 'Admin' ? 'Admin' : role + ' User');
-      localStorage.setItem('crion_vrots_role', role);
-      localStorage.setItem('crion_vrots_user', finalUser);
-      set({ currentRole: role, currentUser: finalUser, isAuthenticated: true });
-    },
-    
-    logout: () => {
-      localStorage.removeItem('crion_vrots_role');
-      localStorage.removeItem('crion_vrots_user');
-      set({ currentRole: 'Team Member', currentUser: 'Team Member', isAuthenticated: false });
-    },
-
-    addUser: (user) => {
-      const updated = [...get().users, user];
-      localStorage.setItem('crion_vrots_users_list', JSON.stringify(updated));
-      set({ users: updated });
-      pushUsersToSupabase(updated);
-    },
-
-    updateUser: (username, updatedFields) => {
-      const updated = get().users.map(u => 
-        u.username.toLowerCase() === username.toLowerCase() ? { ...u, ...updatedFields } : u
-      );
-      localStorage.setItem('crion_vrots_users_list', JSON.stringify(updated));
-      set({ users: updated });
-      pushUsersToSupabase(updated);
-
-      // If the updated user is the current user, update session details too
-      const currentUserObj = get().users.find(u => u.username.toLowerCase() === username.toLowerCase());
-      if (currentUserObj && get().currentUser === currentUserObj.name) {
-        if (updatedFields.name) {
-          localStorage.setItem('crion_vrots_user', updatedFields.name);
-          set({ currentUser: updatedFields.name });
-        }
-        if (updatedFields.role) {
-          localStorage.setItem('crion_vrots_role', updatedFields.role);
-          set({ currentRole: updatedFields.role });
-        }
-      }
-    },
-
-    deleteUser: (username) => {
-      const updated = get().users.filter(u => u.username.toLowerCase() !== username.toLowerCase());
-      localStorage.setItem('crion_vrots_users_list', JSON.stringify(updated));
-      set({ users: updated });
-      pushUsersToSupabase(updated);
+    } catch {
+      set({ isLoggedIn: false, isLoading: false });
     }
-  };
-});
+  },
+
+  fetchUsers: async () => {
+    try {
+      const profiles = await authService.getAllProfiles();
+      const mapped = (profiles || []).map(p => ({
+        id: p.id,
+        username: p.email ? p.email.split('@')[0] : '',
+        name: p.name || '',
+        role: p.role || 'Team Member',
+        password: '••••••••', // password is secure in Supabase Auth
+      }));
+      set({ users: mapped });
+    } catch (e) {
+      console.error('fetchUsers error:', e);
+    }
+  },
+
+  login: async (username, password) => {
+    const { profile } = await authService.login(username, password);
+    set({
+      isLoggedIn: true,
+      currentRole: profile.role,
+      currentUser: profile.name,
+      currentUserId: profile.id,
+    });
+    if (profile.role === 'Admin') {
+      await get().fetchUsers();
+    }
+    return profile;
+  },
+
+  logout: async () => {
+    await authService.logout();
+    set({ isLoggedIn: false, currentRole: null, currentUser: null, currentUserId: null, users: [] });
+  },
+
+  // Allow role switching (dev/admin tool — only if Admin)
+  setRole: (role, user) => set({ currentRole: role, currentUser: user }),
+
+  updateProfile: async (updates) => {
+    const id = get().currentUserId;
+    if (!id) return;
+    const updated = await authService.updateProfile(id, updates);
+    set({ currentUser: updated.name, currentRole: updated.role });
+    await get().fetchUsers();
+  },
+
+  addUser: async (payload) => {
+    await authService.createUser({
+      username: payload.username,
+      password: payload.password,
+      name: payload.name,
+      role: payload.role,
+    });
+    await get().fetchUsers();
+  },
+
+  updateUser: async (username, payload) => {
+    // Find user profile by username to get their ID
+    const userObj = get().users.find(u => u.username === username);
+    if (!userObj) return;
+    await authService.updateProfile(userObj.id, {
+      name: payload.name,
+      role: payload.role,
+    });
+    await get().fetchUsers();
+  },
+
+  deleteUser: async (username) => {
+    const userObj = get().users.find(u => u.username === username);
+    if (!userObj) return;
+    await authService.deleteProfile(userObj.id);
+    await get().fetchUsers();
+  },
+}));

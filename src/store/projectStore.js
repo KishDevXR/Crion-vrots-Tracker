@@ -1,69 +1,57 @@
 import { create } from 'zustand';
-import { dataService } from '../services/dataService';
+import { projectService } from '../services/projectService';
 
-export const useProjectStore = create((set, get) => ({
+export const useProjectStore = create((set) => ({
   projects: [],
   modules: [],
   loading: false,
 
-  fetchProjects: (role) => {
+  fetchProjects: async (role) => {
     set({ loading: true });
-    const projects = dataService.getProjects(role);
-    set({ projects, loading: false });
+    try {
+      const projects = await projectService.getProjects(role);
+      set({ projects, loading: false });
+    } catch (e) {
+      console.error('fetchProjects error:', e);
+      set({ loading: false });
+    }
   },
 
-  fetchModules: (role) => {
-    set({ loading: true });
-    const modules = dataService.getModules(role);
-    set({ modules, loading: false });
+  fetchModules: async (role) => {
+    const modules = await projectService.getModules(role);
+    set({ modules });
   },
 
-  addProject: (project) => {
-    const newProj = dataService.saveProject({
-      id: `proj-${Date.now()}`,
-      status: 'Active',
-      ...project
-    });
-    set(state => ({ projects: [...state.projects, newProj] }));
+  addProject: async (payload) => {
+    const project = await projectService.createProject(payload);
+    set(s => ({ projects: [project, ...s.projects] }));
   },
 
-  updateProject: (project) => {
-    const updated = dataService.saveProject(project);
-    set(state => ({
-      projects: state.projects.map(p => p.id === updated.id ? updated : p)
+  updateProject: async (payload) => {
+    const updated = await projectService.updateProject(payload);
+    set(s => ({ projects: s.projects.map(p => p.id === updated.id ? updated : p) }));
+  },
+
+  deleteProject: async (id) => {
+    await projectService.deleteProject(id);
+    set(s => ({
+      projects: s.projects.filter(p => p.id !== id),
+      modules: s.modules.filter(m => m.projectId !== id),
     }));
   },
 
-  deleteProject: (id) => {
-    dataService.deleteProject(id);
-    set(state => ({
-      projects: state.projects.filter(p => p.id !== id),
-      modules: state.modules.filter(m => m.projectId !== id) // Cascade delete modules
-    }));
+  addModule: async (payload) => {
+    const mod = await projectService.createModule(payload);
+    set(s => ({ modules: [mod, ...s.modules] }));
   },
 
-  addModule: (moduleItem) => {
-    const newMod = dataService.saveModule({
-      id: `mod-${Date.now()}`,
-      status: 'Pending',
-      percentComplete: 0,
-      effortsHours: 0,
-      ...moduleItem
-    });
-    set(state => ({ modules: [...state.modules, newMod] }));
+  updateModule: async (payload) => {
+    const updated = await projectService.updateModule(payload);
+    set(s => ({ modules: s.modules.map(m => m.id === updated.id ? updated : m) }));
   },
 
-  updateModule: (moduleItem) => {
-    const updated = dataService.saveModule(moduleItem);
-    set(state => ({
-      modules: state.modules.map(m => m.id === updated.id ? updated : m)
-    }));
+  deleteModule: async (id) => {
+    await projectService.deleteModule(id);
+    set(s => ({ modules: s.modules.filter(m => m.id !== id) }));
   },
-
-  deleteModule: (id) => {
-    dataService.deleteModule(id);
-    set(state => ({
-      modules: state.modules.filter(m => m.id !== id)
-    }));
-  }
 }));

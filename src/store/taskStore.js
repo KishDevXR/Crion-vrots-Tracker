@@ -1,309 +1,174 @@
 import { create } from 'zustand';
-import { dataService } from '../services/dataService';
+import { taskService } from '../services/taskService';
 
 export const useTaskStore = create((set, get) => ({
   tasks: [],
-  unassignedTasks: [],
   backlogTasks: [],
+  unassignedTasks: [],
   epics: [],
   deliverables: [],
   loading: false,
 
-  fetchTasks: (role, currentUser) => {
+  // ── TASKS ────────────────────────────────────────────────
+  fetchTasks: async (role, user) => {
     set({ loading: true });
-    const tasks = dataService.getTasks(role, currentUser);
-    set({ tasks, loading: false });
+    try {
+      const tasks = await taskService.getTasks(role, user);
+      set({ tasks, loading: false });
+    } catch (e) {
+      console.error('fetchTasks error:', e);
+      set({ loading: false });
+    }
   },
 
-  fetchUnassignedTasks: () => {
-    const unassignedTasks = dataService.getUnassignedTasks();
-    set({ unassignedTasks });
+  addTask: async (taskData, currentUser) => {
+    const task = await taskService.createTask(taskData, currentUser);
+    set(s => ({ tasks: [task, ...s.tasks] }));
+    return task;
   },
 
-  fetchBacklogTasks: () => {
-    const backlogTasks = dataService.getBacklogTasks();
-    set({ backlogTasks });
+  updateTask: async (taskData, currentUser) => {
+    const updated = await taskService.updateTask(taskData, currentUser);
+    set(s => ({ tasks: s.tasks.map(t => t.id === updated.id ? updated : t) }));
+    return updated;
   },
 
-  fetchEpics: () => {
-    const epics = dataService.getEpics();
+  deleteTask: async (id) => {
+    await taskService.deleteTask(id);
+    set(s => ({ tasks: s.tasks.filter(t => t.id !== id) }));
+  },
+
+  changeTaskStatus: async (taskId, newStatus, changedBy) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    const updated = await taskService.changeStatus(taskId, newStatus, changedBy, task?.projectId);
+    set(s => ({ tasks: s.tasks.map(t => t.id === taskId ? updated : t) }));
+    return updated;
+  },
+
+  addCommentToTask: async (taskId, text, currentUser) => {
+    const comment = await taskService.addComment(taskId, text, currentUser);
+    set(s => ({
+      tasks: s.tasks.map(t =>
+        t.id === taskId ? { ...t, comments: [...(t.comments || []), comment] } : t
+      )
+    }));
+  },
+
+  // Real-time: called by Supabase subscription in App.jsx
+  handleRealtimeTaskChange: (payload) => {
+    const { eventType, new: newRow, old: oldRow } = payload;
+    if (eventType === 'INSERT') {
+      // Refetch to get full task with joins
+      taskService.getTask(newRow.id).then(task => {
+        if (task) set(s => ({ tasks: [task, ...s.tasks.filter(t => t.id !== task.id)] }));
+      });
+    } else if (eventType === 'UPDATE') {
+      taskService.getTask(newRow.id).then(task => {
+        if (task) set(s => ({ tasks: s.tasks.map(t => t.id === task.id ? task : t) }));
+      });
+    } else if (eventType === 'DELETE') {
+      set(s => ({ tasks: s.tasks.filter(t => t.id !== oldRow.id) }));
+    }
+  },
+
+  // ── BACKLOG ───────────────────────────────────────────────
+  fetchBacklogTasks: async () => {
+    const items = await taskService.getBacklogItems();
+    set({ backlogTasks: items });
+  },
+
+  addBacklogTask: async (payload) => {
+    const item = await taskService.createBacklogItem(payload);
+    set(s => ({ backlogTasks: [item, ...s.backlogTasks] }));
+  },
+
+  updateBacklogTask: async (task) => {
+    const updated = await taskService.updateBacklogItem(task);
+    set(s => ({ backlogTasks: s.backlogTasks.map(t => t.id === updated.id ? updated : t) }));
+  },
+
+  deleteBacklogTask: async (id) => {
+    await taskService.deleteBacklogItem(id);
+    set(s => ({ backlogTasks: s.backlogTasks.filter(t => t.id !== id) }));
+  },
+
+  assignBacklogTask: async (id, details, currentUser) => {
+    const task = await taskService.promoteBacklogItem(id, details, currentUser);
+    set(s => ({
+      backlogTasks: s.backlogTasks.filter(t => t.id !== id),
+      tasks: task ? [task, ...s.tasks] : s.tasks,
+    }));
+  },
+
+  // ── UNASSIGNED ────────────────────────────────────────────
+  fetchUnassignedTasks: async () => {
+    const items = await taskService.getUnassignedTasks();
+    set({ unassignedTasks: items });
+  },
+
+  addUnassignedTask: async (payload) => {
+    const item = await taskService.createUnassignedTask(payload);
+    set(s => ({ unassignedTasks: [item, ...s.unassignedTasks] }));
+  },
+
+  deleteUnassignedTask: async (id) => {
+    await taskService.deleteUnassignedTask(id);
+    set(s => ({ unassignedTasks: s.unassignedTasks.filter(t => t.id !== id) }));
+  },
+
+  assignUnassignedTask: async (id, details, currentUser) => {
+    const task = await taskService.promoteUnassignedTask(id, details, currentUser);
+    set(s => ({
+      unassignedTasks: s.unassignedTasks.filter(t => t.id !== id),
+      tasks: task ? [task, ...s.tasks] : s.tasks,
+    }));
+  },
+
+  // ── EPICS ─────────────────────────────────────────────────
+  fetchEpics: async () => {
+    const epics = await taskService.getEpics();
     set({ epics });
   },
 
-  fetchDeliverables: () => {
-    const deliverables = dataService.getDeliverables();
+  addEpic: async (payload) => {
+    const epic = await taskService.createEpic(payload);
+    set(s => ({ epics: [epic, ...s.epics] }));
+  },
+
+  updateEpic: async (epic) => {
+    const updated = await taskService.updateEpic(epic);
+    set(s => ({ epics: s.epics.map(e => e.id === updated.id ? updated : e) }));
+  },
+
+  // ── DELIVERABLES ──────────────────────────────────────────
+  fetchDeliverables: async () => {
+    const deliverables = await taskService.getDeliverables();
     set({ deliverables });
   },
 
-  addTask: (task, changedBy) => {
-    const newTask = dataService.saveTask({
-      id: `task-${Date.now()}`,
-      status: 'Not Started',
-      progressPercent: 0,
-      actualHours: 0,
-      comments: [],
-      activityLog: [],
-      updatedBy: changedBy,
-      ...task
-    });
-    set(state => ({ tasks: [...state.tasks, newTask] }));
-    // If it's linked to an epic, update epic
-    if (task.epicId) {
-      get().linkTaskToEpic(task.epicId, newTask.id);
-    }
+  addDeliverable: async (payload) => {
+    const d = await taskService.createDeliverable(payload);
+    set(s => ({ deliverables: [...s.deliverables, d] }));
   },
 
-  updateTask: (task, changedBy) => {
-    const updated = dataService.saveTask({
-      ...task,
-      updatedBy: changedBy
-    });
-    set(state => ({
-      tasks: state.tasks.map(t => t.id === updated.id ? updated : t)
-    }));
-    // If epic changed, adjust epic linkages
-    if (task.epicId) {
-      get().linkTaskToEpic(task.epicId, task.id);
-    }
+  // ── TIME LOGS ─────────────────────────────────────────────
+  logTime: async (taskId, entry) => {
+    await taskService.logTime(taskId, entry);
+    // Refresh task to update actual_hours
+    const updated = await taskService.getTask(taskId);
+    if (updated) set(s => ({ tasks: s.tasks.map(t => t.id === taskId ? updated : t) }));
   },
 
-  deleteTask: (id) => {
-    dataService.deleteTask(id);
-    set(state => ({
-      tasks: state.tasks.filter(t => t.id !== id)
-    }));
+  // ── DEPENDENCIES ──────────────────────────────────────────
+  addDependency: async (taskId, dependsOnId) => {
+    await taskService.addDependency(taskId, dependsOnId);
+    const updated = await taskService.getTask(taskId);
+    if (updated) set(s => ({ tasks: s.tasks.map(t => t.id === taskId ? updated : t) }));
   },
 
-  // --- Comments ---
-  addCommentToTask: (taskId, text, author) => {
-    const task = get().tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    const newComment = {
-      author,
-      timestamp: new Date().toISOString(),
-      text
-    };
-
-    const updatedTask = {
-      ...task,
-      comments: [...(task.comments || []), newComment],
-      updatedBy: author
-    };
-
-    dataService.saveTask(updatedTask);
-    set(state => ({
-      tasks: state.tasks.map(t => t.id === taskId ? updatedTask : t)
-    }));
+  removeDependency: async (taskId, dependsOnId) => {
+    await taskService.removeDependency(taskId, dependsOnId);
+    const updated = await taskService.getTask(taskId);
+    if (updated) set(s => ({ tasks: s.tasks.map(t => t.id === taskId ? updated : t) }));
   },
-
-  // --- Unassigned Tasks ---
-  addUnassignedTask: (task) => {
-    const newTask = dataService.saveUnassignedTask({
-      id: `un-${Date.now()}`,
-      ...task
-    });
-    set(state => ({ unassignedTasks: [...state.unassignedTasks, newTask] }));
-  },
-
-  deleteUnassignedTask: (id) => {
-    dataService.deleteUnassignedTask(id);
-    set(state => ({
-      unassignedTasks: state.unassignedTasks.filter(t => t.id !== id)
-    }));
-  },
-
-  assignUnassignedTask: (unTaskId, taskDetails, changedBy) => {
-    const unTask = get().unassignedTasks.find(t => t.id === unTaskId);
-    if (!unTask) return;
-
-    // Create a new active task from the unassigned one
-    const newTask = {
-      id: `task-${Date.now()}`,
-      projectId: unTask.projectId,
-      moduleId: unTask.moduleId,
-      description: unTask.description,
-      plannedHours: unTask.plannedHours,
-      role: taskDetails.role || 'Developer',
-      resourceName: taskDetails.resourceName || '',
-      manager: taskDetails.manager || 'Admin',
-      status: 'Not Started',
-      priority: taskDetails.priority || 'Medium',
-      storyPoints: taskDetails.storyPoints || 3,
-      startDate: taskDetails.startDate || new Date().toISOString().split('T')[0],
-      endDate: taskDetails.endDate || new Date().toISOString().split('T')[0],
-      actualHours: 0,
-      progressPercent: 0,
-      comments: [],
-      activityLog: [{
-        fieldChanged: 'created_from_unassigned',
-        oldValue: '',
-        newValue: `Created from Unassigned Task ${unTaskId}`,
-        changedBy,
-        timestamp: new Date().toISOString()
-      }]
-    };
-
-    dataService.saveTask(newTask);
-    dataService.deleteUnassignedTask(unTaskId);
-
-    set(state => ({
-      tasks: [...state.tasks, newTask],
-      unassignedTasks: state.unassignedTasks.filter(t => t.id !== unTaskId)
-    }));
-  },
-
-  // --- Backlog Tasks ---
-  addBacklogTask: (task) => {
-    const newTask = dataService.saveBacklogTask({
-      id: `backlog-${Date.now()}`,
-      status: 'Backlog',
-      ...task
-    });
-    set(state => ({ backlogTasks: [...state.backlogTasks, newTask] }));
-  },
-
-  updateBacklogTask: (task) => {
-    const updated = dataService.saveBacklogTask(task);
-    set(state => ({
-      backlogTasks: state.backlogTasks.map(t => t.id === updated.id ? updated : t)
-    }));
-  },
-
-  deleteBacklogTask: (id) => {
-    dataService.deleteBacklogTask(id);
-    set(state => ({
-      backlogTasks: state.backlogTasks.filter(t => t.id !== id)
-    }));
-  },
-
-  assignBacklogTask: (backlogTaskId, taskDetails, changedBy) => {
-    const backlogTask = get().backlogTasks.find(t => t.id === backlogTaskId);
-    if (!backlogTask) return;
-
-    const newTask = {
-      id: `task-${Date.now()}`,
-      projectId: backlogTask.projectId,
-      moduleId: backlogTask.moduleId,
-      description: backlogTask.description,
-      plannedHours: backlogTask.plannedHours,
-      role: taskDetails.role || 'Developer',
-      resourceName: taskDetails.resourceName || backlogTask.assignedTo || '',
-      manager: taskDetails.manager || 'Admin',
-      status: 'Not Started',
-      priority: backlogTask.priority || 'Medium',
-      storyPoints: taskDetails.storyPoints || 3,
-      startDate: taskDetails.startDate || new Date().toISOString().split('T')[0],
-      endDate: taskDetails.endDate || new Date().toISOString().split('T')[0],
-      actualHours: 0,
-      progressPercent: 0,
-      comments: [],
-      activityLog: [{
-        fieldChanged: 'created_from_backlog',
-        oldValue: '',
-        newValue: `Created from Backlog Task ${backlogTaskId}`,
-        changedBy,
-        timestamp: new Date().toISOString()
-      }]
-    };
-
-    dataService.saveTask(newTask);
-    dataService.deleteBacklogTask(backlogTaskId);
-
-    set(state => ({
-      tasks: [...state.tasks, newTask],
-      backlogTasks: state.backlogTasks.filter(t => t.id !== backlogTaskId)
-    }));
-  },
-
-  // --- Epics ---
-  addEpic: (epic) => {
-    const newEpic = dataService.saveEpic({
-      id: `epic-${Date.now()}`,
-      status: 'In Progress',
-      ...epic
-    });
-    set(state => ({ epics: [...state.epics, newEpic] }));
-  },
-
-  updateEpic: (epic) => {
-    const updated = dataService.saveEpic(epic);
-    set(state => ({
-      epics: state.epics.map(e => e.id === updated.id ? updated : e)
-    }));
-  },
-
-  deleteEpic: (id) => {
-    dataService.deleteEpic(id);
-    set(state => ({
-      epics: state.epics.filter(e => e.id !== id)
-    }));
-  },
-
-  linkTaskToEpic: (epicId, taskId) => {
-    const epics = get().epics;
-    const updatedEpics = epics.map(e => {
-      // Remove task from any other epic it might be linked to
-      let linked = e.linkedTaskIds || [];
-      if (e.id === epicId) {
-        if (!linked.includes(taskId)) {
-          linked = [...linked, taskId];
-        }
-      } else {
-        linked = linked.filter(id => id !== taskId);
-      }
-      const updatedEpic = { ...e, linkedTaskIds: linked };
-      dataService.saveEpic(updatedEpic);
-      return updatedEpic;
-    });
-    set({ epics: updatedEpics });
-  },
-
-  // --- Deliverables ---
-  addDeliverable: (del) => {
-    const newDel = dataService.saveDeliverable({
-      id: `del-${Date.now()}`,
-      ...del
-    });
-    set(state => ({ deliverables: [...state.deliverables, newDel] }));
-  },
-
-  updateDeliverable: (del) => {
-    const updated = dataService.saveDeliverable(del);
-    set(state => ({
-      deliverables: state.deliverables.map(d => d.id === updated.id ? updated : d)
-    }));
-  },
-
-  deleteDeliverable: (id) => {
-    dataService.deleteDeliverable(id);
-    set(state => ({
-      deliverables: state.deliverables.filter(d => d.id !== id)
-    }));
-  },
-
-  // --- Drag and Drop Status Change ---
-  changeTaskStatus: (taskId, newStatus, changedBy) => {
-    const task = get().tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    let progressPercent = task.progressPercent;
-    if (newStatus === 'Done') {
-      progressPercent = 100;
-    } else if (newStatus === 'Not Started') {
-      progressPercent = 0;
-    }
-
-    const updatedTask = {
-      ...task,
-      status: newStatus,
-      progressPercent,
-      updatedBy
-    };
-
-    dataService.saveTask(updatedTask);
-    set(state => ({
-      tasks: state.tasks.map(t => t.id === taskId ? { ...t, status: newStatus, progressPercent, activityLog: updatedTask.activityLog } : t)
-    }));
-  }
 }));

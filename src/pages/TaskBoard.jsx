@@ -12,7 +12,11 @@ import {
   Filter, 
   Search, 
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  LayoutGrid,
+  Calendar,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 export default function TaskBoard({ onOpenTaskDrawer }) {
@@ -27,6 +31,8 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
   const [filterProject, setFilterProject] = useState('');
   const [filterResource, setFilterResource] = useState('');
   const [filterWeek, setFilterWeek] = useState('');
+  const [viewType, setViewType] = useState('kanban'); // 'kanban' | 'calendar'
+  const [currentMonth, setCurrentMonth] = useState(new Date());
   
   // Add Task Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -137,11 +143,40 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
             Track and manage ongoing project tasks in real-time.
           </p>
         </div>
-        {canAdd && (
-          <Button variant="primary" onClick={handleOpenAddModal} icon={Plus}>
-            Add Task
-          </Button>
-        )}
+        
+        <div className="flex items-center gap-3">
+          {/* View Toggles */}
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
+            <button
+              onClick={() => setViewType('kanban')}
+              className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-semibold transition-all ${
+                viewType === 'kanban'
+                  ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+              }`}
+            >
+              <LayoutGrid size={14} />
+              Board
+            </button>
+            <button
+              onClick={() => setViewType('calendar')}
+              className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-semibold transition-all ${
+                viewType === 'calendar'
+                  ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+              }`}
+            >
+              <Calendar size={14} />
+              Calendar
+            </button>
+          </div>
+
+          {canAdd && (
+            <Button variant="primary" onClick={handleOpenAddModal} icon={Plus}>
+              Add Task
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -176,18 +211,19 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
             ))}
           </select>
 
-          {/* Week Filter */}
+          {/* Week Filter — dynamically derived from task data */}
           <select
             value={filterWeek}
             onChange={(e) => setFilterWeek(e.target.value)}
             className="text-xs bg-slate-50 border border-slate-200 dark:bg-slate-800 dark:border-slate-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 dark:text-slate-250 font-medium"
           >
             <option value="">All Weeks</option>
-            <option value="26">Week 26</option>
-            <option value="27">Week 27</option>
-            <option value="28">Week 28</option>
-            <option value="29">Week 29</option>
-            <option value="30">Week 30</option>
+            {[...new Set(tasks.map(t => t.weekNo).filter(Boolean))]
+              .sort((a, b) => a - b)
+              .map(wk => (
+                <option key={wk} value={String(wk)}>Week {wk}</option>
+              ))
+            }
           </select>
 
           {(filterProject || filterResource || filterWeek) && (
@@ -206,12 +242,125 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
         </div>
       </div>
 
-      {/* Kanban Board */}
-      <KanbanBoard
-        tasks={filteredTasks}
-        onTaskStatusChange={(taskId, newStatus) => changeTaskStatus(taskId, newStatus, currentUser)}
-        onCardClick={onOpenTaskDrawer}
-      />
+      {/* Kanban Board or Calendar View */}
+      {viewType === 'kanban' ? (
+        <KanbanBoard
+          tasks={filteredTasks}
+          onTaskStatusChange={(taskId, newStatus) => changeTaskStatus(taskId, newStatus, currentUser)}
+          onCardClick={onOpenTaskDrawer}
+        />
+      ) : (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm space-y-4">
+          {/* Calendar Controller */}
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-slate-800 dark:text-white">
+              {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </h2>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setCurrentMonth(new Date(currentMonth.setMonth(currentMonth.getMonth() - 1)))}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button 
+                onClick={() => setCurrentMonth(new Date())}
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+              >
+                Today
+              </button>
+              <button 
+                onClick={() => setCurrentMonth(new Date(currentMonth.setMonth(currentMonth.getMonth() + 1)))}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Calendar Grid */}
+          <div className="grid grid-cols-7 gap-px bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+            {/* Weekdays */}
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+              <div key={day} className="bg-slate-50 dark:bg-slate-850 p-2 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
+                {day}
+              </div>
+            ))}
+
+            {/* Days */}
+            {(() => {
+              const year = currentMonth.getFullYear();
+              const month = currentMonth.getMonth();
+              const firstDay = new Date(year, month, 1);
+              const startDay = new Date(firstDay);
+              const dayOffset = startDay.getDay() === 0 ? 6 : startDay.getDay() - 1;
+              startDay.setDate(startDay.getDate() - dayOffset);
+              
+              const days = [];
+              for (let i = 0; i < 42; i++) {
+                days.push(new Date(startDay));
+                startDay.setDate(startDay.getDate() + 1);
+              }
+
+              return days.map((day, idx) => {
+                const dayStr = day.toISOString().split('T')[0];
+                const isCurrentMonth = day.getMonth() === month;
+                const isToday = new Date().toISOString().split('T')[0] === dayStr;
+                
+                // Find tasks spanning this day
+                const dayTasks = filteredTasks.filter(t => {
+                  if (!t.startDate) return false;
+                  const tStart = t.startDate;
+                  const tEnd = t.endDate || tStart;
+                  return dayStr >= tStart && dayStr <= tEnd;
+                });
+
+                return (
+                  <div 
+                    key={idx} 
+                    className={`bg-white dark:bg-slate-900 min-h-[100px] p-2 flex flex-col justify-between hover:bg-slate-50/50 dark:hover:bg-slate-850/50 transition-colors ${
+                      isCurrentMonth ? '' : 'opacity-40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${
+                        isToday 
+                          ? 'bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center' 
+                          : 'text-slate-700 dark:text-slate-300'
+                      }`}>
+                        {day.getDate()}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 space-y-1 overflow-y-auto max-h-[70px]">
+                      {dayTasks.map(t => {
+                        const statusColors = {
+                          'Done': 'bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400 border-green-200 dark:border-green-800/40',
+                          'In Progress': 'bg-blue-50 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400 border-blue-200 dark:border-blue-800/40',
+                          'Blocked': 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400 border-red-200 dark:border-red-800/40',
+                          'Not Started': 'bg-slate-50 text-slate-700 dark:bg-slate-800/50 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                        };
+                        const colorClass = statusColors[t.status] || statusColors['Not Started'];
+
+                        return (
+                          <div 
+                            key={t.id}
+                            onClick={() => onOpenTaskDrawer(t)}
+                            className={`text-[9px] px-1.5 py-0.5 rounded border font-medium truncate cursor-pointer transition-all hover:scale-[1.02] ${colorClass}`}
+                            title={`${t.description} (${t.status})`}
+                          >
+                            {t.description}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Add Task Modal */}
       <Modal

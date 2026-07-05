@@ -6,7 +6,7 @@ import { useSprintStore } from '../store/sprintStore';
 import { useAuthStore } from '../store/authStore';
 import { canViewBudget } from '../utils/permissionUtils';
 import { 
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+  BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
 import { 
   BarChart3, 
@@ -35,14 +35,44 @@ export default function Reports() {
 
   const showBudget = canViewBudget(currentRole);
 
-  // Chart Data: Sprint Velocity (Completed Story Points in previous Sprints)
-  const velocityData = [
-    { name: 'Sprint 7', 'Story Points Completed': 28, 'Velocity (Target)': 30 },
-    { name: 'Sprint 8', 'Story Points Completed': 32, 'Velocity (Target)': 30 },
-    { name: 'Sprint 9', 'Story Points Completed': 27, 'Velocity (Target)': 30 },
-    { name: 'Sprint 10', 'Story Points Completed': 35, 'Velocity (Target)': 32 },
-    { name: 'Sprint 11', 'Story Points Completed': 38, 'Velocity (Target)': 32 }
-  ];
+  // Chart Data: Dynamic Sprint Velocity (Completed Story Points in previous Sprints)
+  const velocityData = sprints.map(s => {
+    const sprintTasks = tasks.filter(t => t.sprintId === s.id);
+    const completedSP = sprintTasks
+      .filter(t => t.status === 'Done')
+      .reduce((sum, t) => sum + (t.storyPoints || 0), 0);
+    
+    return {
+      name: s.name,
+      'Story Points Completed': completedSP,
+      'Velocity (Target)': 30
+    };
+  });
+
+  // Dynamic Cumulative Flow Diagram Data (group by Project status)
+  const cfdData = projects.map(p => {
+    const pTasks = tasks.filter(t => t.projectId === p.id);
+    return {
+      name: p.name,
+      'Not Started': pTasks.filter(t => t.status === 'Not Started').length,
+      'In Progress': pTasks.filter(t => t.status === 'In Progress').length,
+      'Blocked': pTasks.filter(t => t.status === 'Blocked').length,
+      'Done': pTasks.filter(t => t.status === 'Done').length,
+    };
+  });
+
+  // Dynamic Capacity Load
+  const capacityLoad = resources.map(res => {
+    const resTasks = tasks.filter(t => t.resourceName === res.name);
+    const totalPlanned = resTasks.reduce((sum, t) => sum + (t.plannedHours || 0), 0);
+    const percentage = Math.min(Math.round((totalPlanned / 40) * 100), 200);
+    return {
+      name: res.name,
+      role: res.role,
+      planned: totalPlanned,
+      percentage
+    };
+  });
 
   // Resource Pivot Table Calculations
   const resourceSummary = resources.map(res => {
@@ -129,13 +159,13 @@ export default function Reports() {
         </p>
       </div>
 
-      {/* Velocity Chart */}
+      {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Sprint Velocity Chart */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col h-[300px] transition-colors duration-150">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-bold text-slate-805 dark:text-white uppercase tracking-wider">Sprint Velocity (Story Points)</h3>
+            <h3 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Sprint Velocity (Story Points)</h3>
             <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
               <TrendingUp size={12} className="text-blue-500" />
               Completed SP per Sprint
@@ -171,16 +201,18 @@ export default function Reports() {
         {/* Deliverables Overview KPI Card */}
         <div className="lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-colors duration-150">
           <div>
-            <h3 className="text-xs font-bold text-slate-800 dark:text-slate-300 uppercase tracking-wider mb-3">Velocity Summary</h3>
+            <h3 className="text-xs font-bold text-slate-800 dark:text-slate-350 uppercase tracking-wider mb-3">Velocity Summary</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Our target team velocity is stabilized at <strong>32 story points</strong> per 2-week sprint. Over the last 5 sprints, we achieved a peak output of <strong>38 story points</strong> during Sprint 11.
+              Our target team velocity is stabilized at <strong>30 story points</strong> per 2-week sprint. Over the last few sprints, we achieved a peak output of completed story points driven by VR module completions.
             </p>
           </div>
 
           <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3 text-xs">
             <div className="flex justify-between">
               <span className="text-slate-500">Average Velocity:</span>
-              <span className="font-bold text-slate-900 dark:text-white">32 SP</span>
+              <span className="font-bold text-slate-900 dark:text-white">
+                {velocityData.length ? Math.round(velocityData.reduce((sum, v) => sum + v['Story Points Completed'], 0) / velocityData.length) : 0} SP
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Commitment Reliability:</span>
@@ -189,6 +221,84 @@ export default function Reports() {
             <div className="flex justify-between">
               <span className="text-slate-500">Resource Availability:</span>
               <span className="font-bold text-slate-900 dark:text-white">100% Staffed</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Cumulative Flow Diagram */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col h-[300px] transition-colors duration-150">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Cumulative Flow Diagram</h3>
+            <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
+              <TrendingUp size={12} className="text-blue-500" />
+              Work Item Status Flow by Project
+            </span>
+          </div>
+
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={cfdData}
+                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
+                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'rgba(15, 23, 42, 0.9)', 
+                    border: 'none', 
+                    borderRadius: '8px', 
+                    color: '#fff', 
+                    fontSize: '12px' 
+                  }} 
+                />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '10px' }} />
+                <Area type="monotone" dataKey="Done" stackId="1" stroke="#10b981" fill="#10b981" opacity={0.6} />
+                <Area type="monotone" dataKey="In Progress" stackId="1" stroke="#3b82f6" fill="#3b82f6" opacity={0.6} />
+                <Area type="monotone" dataKey="Blocked" stackId="1" stroke="#ef4444" fill="#ef4444" opacity={0.6} />
+                <Area type="monotone" dataKey="Not Started" stackId="1" stroke="#64748b" fill="#64748b" opacity={0.6} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Capacity Heatmap card */}
+        <div className="lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-colors duration-150">
+          <div>
+            <h3 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-3">Resource Capacity Heatmap</h3>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+              Calculated load relative to a standard 40h work week. Red indicates over-allocation warnings.
+            </p>
+            
+            <div className="space-y-3.5 max-h-[180px] overflow-y-auto pr-1">
+              {capacityLoad.map(res => {
+                const color = res.percentage > 100 
+                  ? 'text-red-500 bg-red-500' 
+                  : res.percentage >= 80 
+                    ? 'text-amber-500 bg-amber-500' 
+                    : 'text-emerald-500 bg-emerald-500';
+                const textColor = res.percentage > 100 
+                  ? 'text-red-500' 
+                  : res.percentage >= 80 
+                    ? 'text-amber-550' 
+                    : 'text-emerald-600 dark:text-emerald-400';
+
+                return (
+                  <div key={res.name} className="space-y-1">
+                    <div className="flex justify-between text-xs font-medium">
+                      <span className="text-slate-700 dark:text-slate-300">{res.name}</span>
+                      <span className={`font-bold ${textColor}`}>{res.planned}h ({res.percentage}%)</span>
+                    </div>
+                    <div className="w-full bg-slate-100 dark:bg-slate-850 h-2 rounded-full overflow-hidden border border-slate-200/20">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-300 ${color.split(' ')[1]}`} 
+                        style={{ width: `${Math.min(res.percentage, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
