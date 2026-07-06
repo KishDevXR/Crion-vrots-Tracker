@@ -1,5 +1,47 @@
 import { supabase } from './supabaseClient';
 
+function parseSpreadsheetDate(dateStr) {
+  if (!dateStr) return null;
+  const cleaned = String(dateStr).trim();
+  if (!cleaned) return null;
+
+  // Try standard YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned;
+
+  // DD-MMM-YYYY (e.g. 1-Jul-2026 or 29-Jun-2026)
+  const months = {
+    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12'
+  };
+  const dmyMatch = cleaned.match(/^(\d{1,2})[-/]([A-Za-z]{3})[-/](\d{4})$/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const monthStr = dmyMatch[2].toLowerCase();
+    const month = months[monthStr] || '01';
+    const year = dmyMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  // DD/MM/YYYY
+  const slashMatch = cleaned.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (slashMatch) {
+    const part1 = slashMatch[1].padStart(2, '0');
+    const part2 = slashMatch[2].padStart(2, '0');
+    const year = slashMatch[3];
+    return `${year}-${part2}-${part1}`;
+  }
+
+  // Fallback to JS Date parsing
+  try {
+    const d = new Date(cleaned);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+  } catch (e) {}
+
+  return null;
+}
+
 // Map DB row → frontend shape (backward compat with existing components)
 const mapTask = (row) => {
   if (!row) return null;
@@ -167,6 +209,162 @@ export const taskService = {
     // Log creation
     await taskService.addActivityLog(data.id, currentUser, 'task', null, 'Created', data.project_id);
     return mapTask(data);
+  },
+
+  async batchCreateTasks(tasksArray, currentUser) {
+    // 1. Load existing projects, modules, and profiles
+    const { data: existingProjects, error: projErr } = await supabase.from('projects').select('id, name');
+    if (projErr) throw projErr;
+
+    const { data: existingModules, error: modErr } = await supabase.from('modules').select('id, project_id, name');
+    if (modErr) throw modErr;
+
+    const { data: profiles, error: profErr } = await supabase.from('profiles').select('id, name, role');
+    if (profErr) throw profErr;
+
+    // Helper map of project names to ID
+    const projectMap = new Map((existingProjects || []).map(p => [p.name.toLowerCase().trim(), p.id]));
+    const profilesList = profiles || [];
+
+    // 2. Identify missing projects and create them
+    const newProjectNames = new Set();
+    tasksArray.forEach(t => {
+      if (t.projectName) {
+        const key = t.projectName.toLowerCase().trim();
+        if (!projectMap.has(key)) {
+          newProjectNames.add(t.projectName.trim());
+        }
+      }
+    });
+
+    if (newProjectNames.size > 0) {
+      const inserts = Array.from(newProjectNames).map(name => ({
+        name,
+        client: 'Internal Client',
+        status: 'Active',
+        owner: currentUser || 'Admin'
+      }));
+      const { data: createdProj, error: insErr } = await supabase.from('projects').insert(inserts).select('id, name');
+      if (insErr) throw insErr;
+
+      (createdProj || []).forEach(p => {
+        projectMap.set(p.name.toLowerCase().trim(), p.id);
+      });
+    }
+
+    // 3. Identify and create missing modules
+    // Helper map of project_id + module_name -> module_id
+    const moduleMap = new Map();
+    (existingModules || []).forEach(m => {
+      const key = `${m.project_id}::${m.name.toLowerCase().trim()}`;
+      moduleMap.set(key, m.id);
+    });
+
+    const newModulesMap = new Map(); // project_id -> Set of module names
+    tasksArray.forEach(t => {
+      if (t.projectName && t.moduleName) {
+        const pId = projectMap.get(t.projectName.toLowerCase().trim());
+        if (pId) {
+          const modKey = `${pId}::${t.moduleName.toLowerCase().trim()}`;
+          if (!moduleMap.has(modKey)) {
+            if (!newModulesMap.has(pId)) {
+              newModulesMap.set(pId, new Set());
+            }
+            newModulesMap.get(pId).add(t.moduleName.trim());
+          }
+        }
+      }
+    });
+
+    if (newModulesMap.size > 0) {
+      const moduleInserts = [];
+      for (const [pId, namesSet] of newModulesMap.entries()) {
+        for (const mName of namesSet) {
+          moduleInserts.push({
+            project_id: pId,
+            name: mName,
+            status: 'Pending',
+            percent_complete: 0
+          });
+        }
+      }
+      const { data: createdMods, error: insModErr } = await supabase.from('modules').insert(moduleInserts).select('id, project_id, name');
+      if (insModErr) throw insModErr;
+
+      (createdMods || []).forEach(m => {
+        const key = `${m.project_id}::${m.name.toLowerCase().trim()}`;
+        moduleMap.set(key, m.id);
+      });
+    }
+
+    // 4. Map task rows to DB columns
+    const tasksToInsert = tasksArray.map(t => {
+      const pId = projectMap.get((t.projectName || '').toLowerCase().trim()) || null;
+      const mId = pId && t.moduleName ? (moduleMap.get(`${pId}::${t.moduleName.toLowerCase().trim()}`) || null) : null;
+
+      // Find profile match (assignee)
+      const matchedProfile = profilesList.find(p => p.name.toLowerCase().trim() === (t.resourceName || '').toLowerCase().trim());
+
+      let status = 'Not Started';
+      const cleanStatus = (t.status || '').toLowerCase().trim();
+      if (cleanStatus.includes('progress') || cleanStatus === 'wip') status = 'In Progress';
+      else if (cleanStatus.includes('block') || cleanStatus === 'hold') status = 'Blocked';
+      else if (cleanStatus.includes('done') || cleanStatus.includes('complete') || cleanStatus === 'testing') status = 'Done';
+
+      // Parse Week No
+      let weekNo = null;
+      if (t.weekNo) {
+        const wkMatch = String(t.weekNo).match(/W(\d+)/i);
+        if (wkMatch) {
+          weekNo = parseInt(wkMatch[1]);
+        } else {
+          const num = parseInt(t.weekNo);
+          if (!isNaN(num)) weekNo = num;
+        }
+      }
+
+      return {
+        project_id: pId,
+        module_id: mId,
+        description: t.description || 'Untitled Task',
+        resource_name: matchedProfile ? matchedProfile.name : (t.resourceName || ''),
+        assignee_id: matchedProfile ? matchedProfile.id : null,
+        role: matchedProfile ? matchedProfile.role : (t.role || 'Developer'),
+        manager: t.manager || 'Admin',
+        week_start_date: parseSpreadsheetDate(t.weekStartDate),
+        week_no: weekNo,
+        planned_hours: parseFloat(t.plannedHours) || 0,
+        actual_hours: parseFloat(t.actualHours) || 0,
+        progress_percent: parseInt(t.progressPercent) || 0,
+        status: status,
+        priority: t.priority || 'Medium',
+        start_date: parseSpreadsheetDate(t.startDate),
+        end_date: parseSpreadsheetDate(t.endDate),
+        remarks: t.remarks || '',
+      };
+    });
+
+    // 5. Batch insert tasks
+    const { data: insertedTasks, error: insTaskErr } = await supabase
+      .from('tasks')
+      .insert(tasksToInsert)
+      .select('id, project_id, description');
+    if (insTaskErr) throw insTaskErr;
+
+    // 6. Batch insert activity logs for audits
+    if (insertedTasks && insertedTasks.length > 0) {
+      const logs = insertedTasks.map(task => ({
+        task_id: task.id,
+        project_id: task.project_id,
+        changed_by: currentUser || 'Admin',
+        field_changed: 'task',
+        old_value: null,
+        new_value: 'Created via Spreadsheet Import',
+      }));
+      await supabase.from('activity_log').insert(logs);
+    }
+
+    return insertedTasks;
   },
 
   async updateTask(taskData, currentUser) {
@@ -478,4 +676,26 @@ export const taskService = {
     if (error) throw error;
     return data || [];
   },
+
+  async flushAllData() {
+    // 1. Delete all tasks
+    const { error: taskErr } = await supabase.from('tasks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (taskErr) throw taskErr;
+
+    // 2. Delete all backlog items
+    const { error: backlogErr } = await supabase.from('backlog_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (backlogErr) throw backlogErr;
+
+    // 3. Delete all unassigned tasks
+    const { error: unassignedErr } = await supabase.from('unassigned_tasks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (unassignedErr) throw unassignedErr;
+
+    // 4. Delete all projects (cascades to modules, comments, epics, sprints, deliverables, etc.)
+    const { error: projErr } = await supabase.from('projects').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (projErr) throw projErr;
+
+    // 5. Delete activity logs
+    const { error: logErr } = await supabase.from('activity_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (logErr) throw logErr;
+  }
 };

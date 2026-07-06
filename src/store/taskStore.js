@@ -27,6 +27,18 @@ export const useTaskStore = create((set, get) => ({
     return task;
   },
 
+  importTasks: async (tasksArray, currentUser, currentRole) => {
+    set({ loading: true });
+    try {
+      await taskService.batchCreateTasks(tasksArray, currentUser);
+      await get().fetchTasks(currentRole, currentUser);
+    } catch (e) {
+      console.error('importTasks error:', e);
+      set({ loading: false });
+      throw e;
+    }
+  },
+
   updateTask: async (taskData, currentUser) => {
     const updated = await taskService.updateTask(taskData, currentUser);
     set(s => ({ tasks: s.tasks.map(t => t.id === updated.id ? updated : t) }));
@@ -170,5 +182,24 @@ export const useTaskStore = create((set, get) => ({
     await taskService.removeDependency(taskId, dependsOnId);
     const updated = await taskService.getTask(taskId);
     if (updated) set(s => ({ tasks: s.tasks.map(t => t.id === taskId ? updated : t) }));
+  },
+
+  flushData: async () => {
+    set({ loading: true });
+    try {
+      await taskService.flushAllData();
+      set({ 
+        tasks: [], 
+        backlogItems: [], 
+        unassignedTasks: [], 
+        epics: [], 
+        deliverables: [],
+        loading: false 
+      });
+    } catch (e) {
+      console.error('flushData error:', e);
+      set({ loading: false });
+      throw e;
+    }
   },
 }));

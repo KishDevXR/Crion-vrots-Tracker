@@ -7,12 +7,15 @@ import { canUpdateTask, canEditProjects } from '../utils/permissionUtils';
 import KanbanBoard from '../components/kanban/KanbanBoard';
 import Button from '../components/common/Button';
 import Modal from '../components/common/Modal';
+import SpreadsheetImportModal from '../components/common/SpreadsheetImportModal';
+import FlushConfirmModal from '../components/common/FlushConfirmModal';
 import { 
   Plus, 
   Filter, 
   Search, 
   X,
   FileSpreadsheet,
+  Trash2,
   LayoutGrid,
   Calendar,
   ChevronLeft,
@@ -23,7 +26,7 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
   const currentRole = useAuthStore(state => state.currentRole);
   const currentUser = useAuthStore(state => state.currentUser);
 
-  const { tasks, fetchTasks, addTask, changeTaskStatus } = useTaskStore();
+  const { tasks, fetchTasks, addTask, importTasks, flushData, changeTaskStatus } = useTaskStore();
   const { projects, fetchProjects, modules, fetchModules } = useProjectStore();
   const { resources, fetchResources } = useResourceStore();
 
@@ -36,6 +39,8 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
   
   // Add Task Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isFlushModalOpen, setIsFlushModalOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [selectedProj, setSelectedProj] = useState('');
   const [selectedMod, setSelectedMod] = useState('');
@@ -114,6 +119,17 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
     setIsModalOpen(false);
   };
 
+  const handleImportTasks = async (parsedTasks) => {
+    await importTasks(parsedTasks, currentUser, currentRole);
+    // Refresh project list since importing might have created new projects
+    await fetchProjects(currentRole);
+  };
+
+  const handleFlush = async () => {
+    await flushData();
+    await fetchProjects(currentRole);
+  };
+
   // Filter tasks
   const filteredTasks = tasks.filter(task => {
     const matchesProj = filterProject ? task.projectId === filterProject : true;
@@ -172,9 +188,19 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
           </div>
 
           {canAdd && (
-            <Button variant="primary" onClick={handleOpenAddModal} icon={Plus}>
-              Add Task
-            </Button>
+            <div className="flex items-center gap-2">
+              {currentRole === 'Admin' && (
+                <Button variant="danger" onClick={() => setIsFlushModalOpen(true)} icon={Trash2}>
+                  Flush Data
+                </Button>
+              )}
+              <Button variant="secondary" onClick={() => setIsImportModalOpen(true)} icon={FileSpreadsheet}>
+                Import Sheet
+              </Button>
+              <Button variant="primary" onClick={handleOpenAddModal} icon={Plus}>
+                Add Task
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -489,6 +515,20 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
           </div>
         </form>
       </Modal>
+
+      <SpreadsheetImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImport={handleImportTasks}
+        projects={projects}
+        resources={resources}
+      />
+
+      <FlushConfirmModal
+        isOpen={isFlushModalOpen}
+        onClose={() => setIsFlushModalOpen(false)}
+        onConfirm={handleFlush}
+      />
 
     </div>
   );
