@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Gantt from 'frappe-gantt';
-import 'frappe-gantt/dist/frappe-gantt.css';
+import '../assets/frappe-gantt.css';
 import { useProjectStore } from '../store/projectStore';
 import { useTaskStore } from '../store/taskStore';
 import { useAuthStore } from '../store/authStore';
