@@ -1,5 +1,5 @@
 import React from 'react';
-import { DndContext } from '@dnd-kit/core';
+import { DndContext, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import KanbanColumn from './KanbanColumn';
 
 export default function KanbanBoard({ tasks, onTaskStatusChange, onCardClick }) {
@@ -9,6 +9,14 @@ export default function KanbanBoard({ tasks, onTaskStatusChange, onCardClick }) 
     { id: 'Blocked', title: 'Blocked' },
     { id: 'Done', title: 'Done' }
   ];
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -22,7 +30,7 @@ export default function KanbanBoard({ tasks, onTaskStatusChange, onCardClick }) 
   };
 
   return (
-    <DndContext onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex gap-4 overflow-x-auto pb-4 items-start select-none">
         {columns.map((col) => {
           const colTasks = tasks.filter((t) => t.status === col.id);

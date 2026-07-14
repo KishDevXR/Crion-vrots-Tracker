@@ -90,6 +90,18 @@ export const notificationService = {
       .subscribe();
   },
 
+  // Subscribe to real-time profile changes (resources)
+  subscribeToResources(onResourceChange) {
+    return supabase
+      .channel('profiles:realtime')
+      .on('postgres_changes', {
+        event: '*', // INSERT | UPDATE | DELETE
+        schema: 'public',
+        table: 'profiles',
+      }, (payload) => onResourceChange(payload))
+      .subscribe();
+  },
+
   // Subscribe to comment additions
   subscribeToComments(onComment) {
     return supabase

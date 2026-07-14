@@ -23,7 +23,12 @@ export const useTaskStore = create((set, get) => ({
 
   addTask: async (taskData, currentUser) => {
     const task = await taskService.createTask(taskData, currentUser);
-    set(s => ({ tasks: [task, ...s.tasks] }));
+    if (task.parentTaskId) {
+      const parentTask = await taskService.getTask(task.parentTaskId);
+      set(s => ({ tasks: s.tasks.map(t => t.id === parentTask.id ? parentTask : t) }));
+    } else {
+      set(s => ({ tasks: [task, ...s.tasks] }));
+    }
     return task;
   },
 
@@ -41,7 +46,12 @@ export const useTaskStore = create((set, get) => ({
 
   updateTask: async (taskData, currentUser) => {
     const updated = await taskService.updateTask(taskData, currentUser);
-    set(s => ({ tasks: s.tasks.map(t => t.id === updated.id ? updated : t) }));
+    if (updated.parentTaskId) {
+      const parentTask = await taskService.getTask(updated.parentTaskId);
+      set(s => ({ tasks: s.tasks.map(t => t.id === parentTask.id ? parentTask : t) }));
+    } else {
+      set(s => ({ tasks: s.tasks.map(t => t.id === updated.id ? updated : t) }));
+    }
     return updated;
   },
 
@@ -69,17 +79,32 @@ export const useTaskStore = create((set, get) => ({
   // Real-time: called by Supabase subscription in App.jsx
   handleRealtimeTaskChange: (payload) => {
     const { eventType, new: newRow, old: oldRow } = payload;
+    const targetId = newRow?.parent_task_id || newRow?.id || oldRow?.id;
+    if (!targetId) return;
+
     if (eventType === 'INSERT') {
       // Refetch to get full task with joins
-      taskService.getTask(newRow.id).then(task => {
-        if (task) set(s => ({ tasks: [task, ...s.tasks.filter(t => t.id !== task.id)] }));
+      taskService.getTask(targetId).then(task => {
+        if (task) {
+          if (newRow.parent_task_id) {
+            set(s => ({ tasks: s.tasks.map(t => t.id === task.id ? task : t) }));
+          } else {
+            set(s => ({ tasks: [task, ...s.tasks.filter(t => t.id !== task.id)] }));
+          }
+        }
       });
     } else if (eventType === 'UPDATE') {
-      taskService.getTask(newRow.id).then(task => {
+      taskService.getTask(targetId).then(task => {
         if (task) set(s => ({ tasks: s.tasks.map(t => t.id === task.id ? task : t) }));
       });
     } else if (eventType === 'DELETE') {
-      set(s => ({ tasks: s.tasks.filter(t => t.id !== oldRow.id) }));
+      if (oldRow?.parent_task_id) {
+        taskService.getTask(oldRow.parent_task_id).then(task => {
+          if (task) set(s => ({ tasks: s.tasks.map(t => t.id === task.id ? task : t) }));
+        });
+      } else {
+        set(s => ({ tasks: s.tasks.filter(t => t.id !== oldRow.id) }));
+      }
     }
   },
 

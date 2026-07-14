@@ -398,7 +398,14 @@ export const taskService = {
       .from('tasks')
       .update(update)
       .eq('id', id)
-      .select(`*, comments(*), activity_log(*)`)
+      .select(`
+        *,
+        comments(*),
+        activity_log(*),
+        subtasks:tasks!parent_task_id(*),
+        dependencies:task_dependencies!task_id(id, depends_on_id, type),
+        time_logs(*)
+      `)
       .single();
     if (error) throw error;
 
@@ -432,7 +439,14 @@ export const taskService = {
       .from('tasks')
       .update({ status: newStatus, progress_percent: progressPercent })
       .eq('id', taskId)
-      .select(`*, comments(*), activity_log(*)`)
+      .select(`
+        *,
+        comments(*),
+        activity_log(*),
+        subtasks:tasks!parent_task_id(*),
+        dependencies:task_dependencies!task_id(id, depends_on_id, type),
+        time_logs(*)
+      `)
       .single();
     if (error) throw error;
 

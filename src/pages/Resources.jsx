@@ -55,7 +55,7 @@ export default function Resources() {
   const handleOpenEdit = (res) => {
     setEditingResource(res);
     setName(res.name);
-    setRole(res.role);
+    setRole(res.specialization || res.role);
     setSkills(res.skills ? res.skills.join(', ') : '');
     setWeeklyPlannedHours(res.weeklyPlannedHours);
     setUtilizationPercent(res.utilizationPercent);
@@ -170,7 +170,7 @@ export default function Resources() {
                     <Avatar name={res.name} />
                     <div>
                       <span className="font-bold text-slate-900 dark:text-white block">{res.name}</span>
-                      <span className="text-slate-500 dark:text-slate-400 text-xs">{res.role}</span>
+                      <span className="text-slate-500 dark:text-slate-400 text-xs">{res.specialization || res.role}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4">

@@ -3,7 +3,7 @@ import { useSprintStore } from '../store/sprintStore';
 import { useTaskStore } from '../store/taskStore';
 import { useProjectStore } from '../store/projectStore';
 import { useAuthStore } from '../store/authStore';
-import { canEditSprints } from '../utils/permissionUtils';
+import { canEditSprints, canUpdateTask } from '../utils/permissionUtils';
 import { formatDate } from '../utils/dateUtils';
 import KanbanBoard from '../components/kanban/KanbanBoard';
 import Button from '../components/common/Button';
@@ -283,7 +283,14 @@ export default function SprintBoard({ onOpenTaskDrawer }) {
       {/* Sprint Kanban Board */}
       <KanbanBoard
         tasks={sprintTasks}
-        onTaskStatusChange={(taskId, newStatus) => changeTaskStatus(taskId, newStatus, currentUser)}
+        onTaskStatusChange={(taskId, newStatus) => {
+          const task = tasks.find(t => t.id === taskId);
+          if (!canUpdateTask(currentRole, task, currentUser)) {
+            alert(`Permission denied. You can only update tasks assigned to you (${currentUser}).`);
+            return;
+          }
+          changeTaskStatus(taskId, newStatus, currentUser);
+        }}
         onCardClick={onOpenTaskDrawer}
       />
 

@@ -20,20 +20,26 @@ import Reports from './pages/Reports';
 import Budget from './pages/Budget';
 import Users from './pages/Users';
 import GanttView from './pages/GanttView';
+import QAHub from './pages/QAHub';
 import { useAuthStore } from './store/authStore';
 
 import { notificationService } from './services/notificationService';
 import { useTaskStore } from './store/taskStore';
 import { useNotificationStore } from './store/notificationStore';
+import { useResourceStore } from './store/resourceStore';
 
 function AppContent() {
   const { isLoggedIn, isLoading, currentUserId, initSession } = useAuthStore();
-  const { handleRealtimeTaskChange } = useTaskStore();
+  const { handleRealtimeTaskChange, tasks } = useTaskStore();
   const { addLiveNotification, fetchNotifications } = useNotificationStore();
+  const { handleRealtimeResourceChange } = useResourceStore();
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
 
   const [activeTask, setActiveTask] = useState(null);
+  
+  // Keep activeTask linked to the live task in the store
+  const liveActiveTask = activeTask ? (tasks.find(t => t.id === activeTask.id) || activeTask) : null;
 
   // Initialize session on mount
   useEffect(() => {
@@ -57,11 +63,17 @@ function AppContent() {
       addLiveNotification(notif);
     });
 
+    // Subscribe to profiles/resources updates
+    const resourceSub = notificationService.subscribeToResources((payload) => {
+      handleRealtimeResourceChange(payload);
+    });
+
     return () => {
       taskSub.unsubscribe();
       notifSub.unsubscribe();
+      resourceSub.unsubscribe();
     };
-  }, [isLoggedIn, currentUserId, handleRealtimeTaskChange, addLiveNotification, fetchNotifications]);
+  }, [isLoggedIn, currentUserId, handleRealtimeTaskChange, addLiveNotification, fetchNotifications, handleRealtimeResourceChange]);
 
   if (isLoading) {
     return (
@@ -123,6 +135,7 @@ function AppContent() {
               <Route path="/resources" element={<Resources />} />
               <Route path="/hiring" element={<Hiring />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/qa-hub" element={<QAHub />} />
               
               {/* Strictly Admin + Stakeholder guarded route */}
               <Route 
@@ -152,7 +165,7 @@ function AppContent() {
 
       {/* Global Task details side drawer */}
       <TaskDetailDrawer 
-        task={activeTask} 
+        task={liveActiveTask} 
         isOpen={activeTask !== null} 
         onClose={() => setActiveTask(null)} 
       />

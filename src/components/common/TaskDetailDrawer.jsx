@@ -10,6 +10,7 @@ import { useSprintStore } from '../../store/sprintStore';
 import { useResourceStore } from '../../store/resourceStore';
 import { getTaskEditableFields, canUpdateTask } from '../../utils/permissionUtils';
 import { formatDate } from '../../utils/dateUtils';
+import { getStatusColors } from '../../utils/statusUtils';
 import { notificationService } from '../../services/notificationService';
 import { 
   Calendar, 
@@ -22,7 +23,8 @@ import {
   CheckSquare, 
   AlertCircle,
   Paperclip,
-  Trash2
+  Trash2,
+  ChevronDown
 } from 'lucide-react';
 
 export default function TaskDetailDrawer({ task, isOpen, onClose }) {
@@ -59,6 +61,11 @@ export default function TaskDetailDrawer({ task, isOpen, onClose }) {
   const editableFields = task ? getTaskEditableFields(currentRole, task, currentUser) : {};
   const canModify = task ? canUpdateTask(currentRole, task, currentUser) : false;
 
+  const getStatusClass = (statusVal) => {
+    const colors = getStatusColors(statusVal);
+    return `${colors.bg} ${colors.text} ${colors.border}`;
+  };
+
   // Update fields when task changes
   useEffect(() => {
     if (!task) return;
@@ -76,6 +83,22 @@ export default function TaskDetailDrawer({ task, isOpen, onClose }) {
     setRemarks(task.remarks || '');
     setIsEditing(false);
   }, [task]);
+
+  const loadAttachments = async () => {
+    if (!task?.id) return;
+    try {
+      const data = await notificationService.getAttachments(task.id);
+      setAttachments(data);
+    } catch (err) {
+      console.error('Failed to load attachments:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (task?.id) {
+      loadAttachments();
+    }
+  }, [task?.id]);
 
   // Safe early return AFTER all hooks
   if (!task) return null;
@@ -181,21 +204,7 @@ export default function TaskDetailDrawer({ task, isOpen, onClose }) {
     setLogDesc('');
   };
 
-  const loadAttachments = async () => {
-    if (!task?.id) return;
-    try {
-      const data = await notificationService.getAttachments(task.id);
-      setAttachments(data);
-    } catch (err) {
-      console.error('Failed to load attachments:', err);
-    }
-  };
 
-  useEffect(() => {
-    if (task?.id) {
-      loadAttachments();
-    }
-  }, [task?.id]);
 
   const handleUploadAttachment = async (e) => {
     const file = e.target.files?.[0];
@@ -345,17 +354,31 @@ export default function TaskDetailDrawer({ task, isOpen, onClose }) {
             {/* Status */}
             <div>
               <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Status</span>
-              {isEditing && editableFields.status ? (
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  className="mt-1 w-full text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-slate-900 dark:text-white"
-                >
-                  <option value="Not Started">Not Started</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Blocked">Blocked</option>
-                  <option value="Done">Done</option>
-                </select>
+              {editableFields.status ? (
+                <div className="relative mt-1 max-w-[150px]">
+                  <select
+                    value={isEditing ? status : task.status}
+                    onChange={async (e) => {
+                      const newStatus = e.target.value;
+                      if (isEditing) {
+                        setStatus(newStatus);
+                      } else {
+                        await changeTaskStatus(task.id, newStatus, currentUser);
+                      }
+                    }}
+                    className={`w-full text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/40 select-none appearance-none pr-8 transition-colors ${
+                      getStatusClass(isEditing ? status : task.status)
+                    }`}
+                  >
+                    <option value="Not Started">Not Started</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Blocked">Blocked</option>
+                    <option value="Done">Done</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2 text-slate-550 dark:text-slate-450">
+                    <ChevronDown size={14} />
+                  </div>
+                </div>
               ) : (
                 <div className="mt-1.5">
                   <Badge value={task.status} />

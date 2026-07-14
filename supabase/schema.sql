@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   weekly_planned_hours INTEGER DEFAULT 40,
   weekly_actual_hours  INTEGER DEFAULT 0,
   utilization_percent  INTEGER DEFAULT 0,
+  skills               TEXT[],
   avatar_url           TEXT,
   created_at           TIMESTAMPTZ DEFAULT NOW()
 );
@@ -516,6 +517,95 @@ CREATE POLICY "Admin manager write unassigned"
   WITH CHECK (get_my_role() IN ('Admin','Manager'));
 
 -- ============================================================
+-- STEP 19: Builds (Build No)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.builds (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id   UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  build_no     TEXT NOT NULL,
+  release_date DATE,
+  status       TEXT DEFAULT 'In Progress'
+                 CHECK (status IN ('In Progress','Testing','Released','Aborted')),
+  remarks      TEXT DEFAULT '',
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- STEP 20: Bug Log
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.bugs (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id     UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  module_id      UUID REFERENCES public.modules(id) ON DELETE SET NULL,
+  title          TEXT NOT NULL,
+  description    TEXT DEFAULT '',
+  severity       TEXT DEFAULT 'Medium'
+                   CHECK (severity IN ('Low','Medium','High','Critical')),
+  status         TEXT DEFAULT 'New'
+                   CHECK (status IN ('New','In Progress','Ready to Test','Verified','Closed')),
+  assigned_to    UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  build_found_id UUID REFERENCES public.builds(id) ON DELETE SET NULL,
+  build_fixed_id UUID REFERENCES public.builds(id) ON DELETE SET NULL,
+  created_by     TEXT NOT NULL DEFAULT '',
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- STEP 21: Change Requests (CR)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.change_requests (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id      UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  description     TEXT DEFAULT '',
+  status          TEXT DEFAULT 'Proposed'
+                    CHECK (status IN ('Proposed','Approved','In Progress','Implemented','Rejected')),
+  priority        TEXT DEFAULT 'Medium'
+                    CHECK (priority IN ('Low','Medium','High','Critical')),
+  effort_hours    NUMERIC(6,1) DEFAULT 0,
+  requested_by    TEXT DEFAULT '',
+  target_build_id UUID REFERENCES public.builds(id) ON DELETE SET NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- ROW LEVEL SECURITY FOR NEW TABLES
+-- ============================================================
+ALTER TABLE public.builds          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bugs            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.change_requests ENABLE ROW LEVEL SECURITY;
+
+-- Read policies for everyone authenticated
+DROP POLICY IF EXISTS "Authenticated read builds" ON public.builds;
+CREATE POLICY "Authenticated read builds" ON public.builds FOR SELECT TO authenticated USING (TRUE);
+
+DROP POLICY IF EXISTS "Authenticated read bugs" ON public.bugs;
+CREATE POLICY "Authenticated read bugs" ON public.bugs FOR SELECT TO authenticated USING (TRUE);
+
+DROP POLICY IF EXISTS "Authenticated read change_requests" ON public.change_requests;
+CREATE POLICY "Authenticated read change_requests" ON public.change_requests FOR SELECT TO authenticated USING (TRUE);
+
+-- Write policies for Builds and CR (Admin/Manager only)
+DROP POLICY IF EXISTS "Admin manager write builds" ON public.builds;
+CREATE POLICY "Admin manager write builds"
+  ON public.builds FOR ALL TO authenticated
+  USING (get_my_role() IN ('Admin','Manager'))
+  WITH CHECK (get_my_role() IN ('Admin','Manager'));
+
+DROP POLICY IF EXISTS "Admin manager write change_requests" ON public.change_requests;
+CREATE POLICY "Admin manager write change_requests"
+  ON public.change_requests FOR ALL TO authenticated
+  USING (get_my_role() IN ('Admin','Manager'))
+  WITH CHECK (get_my_role() IN ('Admin','Manager'));
+
+-- Write policies for Bugs (All authenticated users can create/update bugs)
+DROP POLICY IF EXISTS "Anyone write bugs" ON public.bugs;
+CREATE POLICY "Anyone write bugs"
+  ON public.bugs FOR ALL TO authenticated
+  USING (TRUE)
+  WITH CHECK (TRUE);
+
+-- ============================================================
 -- SUPABASE REALTIME: enable for live collaboration
 -- ============================================================
 BEGIN;
@@ -525,5 +615,8 @@ BEGIN;
     public.comments,
     public.activity_log,
     public.notifications,
-    public.sprints;
+    public.sprints,
+    public.builds,
+    public.bugs,
+    public.change_requests;
 COMMIT;

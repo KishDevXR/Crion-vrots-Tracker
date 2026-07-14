@@ -4,10 +4,12 @@ const mapResource = (row) => ({
   id: row.id,
   name: row.name,
   role: row.role,
+  specialization: row.specialization || null,
   weeklyPlannedHours: row.weekly_planned_hours || 40,
   weeklyActualHours: row.weekly_actual_hours || 0,
   utilizationPercent: row.utilization_percent || 0,
   hourlyRate: parseFloat(row.hourly_rate) || 50,
+  skills: row.skills || [],
   avatarUrl: row.avatar_url || null,
 });
 
@@ -43,14 +45,53 @@ export const resourceService = {
 
   async updateResource(payload) {
     const { id, ...rest } = payload;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({
+          name: rest.name,
+          role: rest.role,
+          specialization: rest.specialization,
+          hourly_rate: rest.hourlyRate,
+          weekly_planned_hours: rest.weeklyPlannedHours,
+          weekly_actual_hours: rest.weeklyActualHours,
+          utilization_percent: rest.utilizationPercent,
+          skills: rest.skills,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (!error) {
+        return mapResource(data);
+      }
+
+      // If column doesn't exist, we'll get error code 42703
+      if (error.code !== '42703') {
+        throw error;
+      }
+      console.warn("Profiles table does not have 'skills' or 'specialization' columns. Falling back to update without them.");
+    } catch (e) {
+      if (e.code !== '42703') {
+        throw e;
+      }
+    }
+
+    // Fallback update without skills/specialization columns
     const { data, error } = await supabase
       .from('profiles')
       .update({
-        name: rest.name, role: rest.role,
-        hourly_rate: rest.hourlyRate, weekly_planned_hours: rest.weeklyPlannedHours,
-        weekly_actual_hours: rest.weeklyActualHours, utilization_percent: rest.utilizationPercent,
+        name: rest.name,
+        role: rest.role,
+        hourly_rate: rest.hourlyRate,
+        weekly_planned_hours: rest.weeklyPlannedHours,
+        weekly_actual_hours: rest.weeklyActualHours,
+        utilization_percent: rest.utilizationPercent,
       })
-      .eq('id', id).select().single();
+      .eq('id', id)
+      .select()
+      .single();
+
     if (error) throw error;
     return mapResource(data);
   },

@@ -272,7 +272,14 @@ export default function TaskBoard({ onOpenTaskDrawer }) {
       {viewType === 'kanban' ? (
         <KanbanBoard
           tasks={filteredTasks}
-          onTaskStatusChange={(taskId, newStatus) => changeTaskStatus(taskId, newStatus, currentUser)}
+          onTaskStatusChange={(taskId, newStatus) => {
+            const task = tasks.find(t => t.id === taskId);
+            if (!canUpdateTask(currentRole, task, currentUser)) {
+              alert(`Permission denied. You can only update tasks assigned to you (${currentUser}).`);
+              return;
+            }
+            changeTaskStatus(taskId, newStatus, currentUser);
+          }}
           onCardClick={onOpenTaskDrawer}
         />
       ) : (

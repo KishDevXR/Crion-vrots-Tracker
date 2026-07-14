@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { resourceService } from '../services/resourceService';
+import { authService } from '../services/authService';
 
 export const useResourceStore = create((set, get) => ({
   resources: [],
@@ -37,18 +38,51 @@ export const useResourceStore = create((set, get) => ({
   },
 
   addResource: async (resource) => {
-    // Note: Resources are profiles. To add a resource in Supabase, we typically sign them up or Admin registers them.
-    // However, if we just want to update/upsert profile details, we use updateResource.
-    // For compatibility with local updates, we will call updateResource or handle it via authService.createUser.
-    // Here we check if the resource already has an ID, otherwise we don't directly insert random UUIDs to public.profiles.
-    // Let's implement update profile for existing ones.
-    const updated = await resourceService.updateResource(resource);
-    await get().fetchResources();
-    return updated;
+    try {
+      // 1. Create a corresponding auth user first to establish a profile UUID
+      const username = resource.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const tempPassword = Math.random().toString(36).slice(-8) + 'A1!'; // safe random password
+
+      const user = await authService.createUser({
+        username: username || `res_${Date.now()}`,
+        password: tempPassword,
+        name: resource.name,
+        role: 'Team Member', // Use valid check-constrained role 'Team Member'
+        hourlyRate: resource.hourlyRate || 50,
+      });
+
+      if (!user?.id) {
+        throw new Error('Failed to create auth user for resource');
+      }
+
+      // 2. Update the newly created profile with planning details & skills
+      const updated = await resourceService.updateResource({
+        id: user.id,
+        name: resource.name,
+        role: 'Team Member',
+        specialization: resource.specialization || resource.role,
+        skills: resource.skills,
+        weeklyPlannedHours: resource.weeklyPlannedHours,
+        utilizationPercent: resource.utilizationPercent,
+        hourlyRate: resource.hourlyRate || 50,
+      });
+
+      await get().fetchResources();
+      return updated;
+    } catch (error) {
+      console.error('addResource error:', error);
+      throw error;
+    }
   },
 
   updateResource: async (resource) => {
-    const updated = await resourceService.updateResource(resource);
+    const isSystemRole = ['Admin', 'Manager', 'Team Member', 'Stakeholder'].includes(resource.role);
+    const payload = {
+      ...resource,
+      role: isSystemRole ? resource.role : 'Team Member',
+      specialization: isSystemRole ? (resource.specialization || null) : (resource.role || resource.specialization)
+    };
+    const updated = await resourceService.updateResource(payload);
     await get().fetchResources();
     return updated;
   },
@@ -118,5 +152,40 @@ export const useResourceStore = create((set, get) => ({
     set(state => ({
       skillDevelopments: state.skillDevelopments.filter(s => s.id !== id)
     }));
+  },
+
+  handleRealtimeResourceChange: (payload) => {
+    const { eventType, new: newRow, old: oldRow } = payload;
+    if (eventType === 'INSERT') {
+      const mapped = {
+        id: newRow.id,
+        name: newRow.name,
+        role: newRow.role,
+        specialization: newRow.specialization || null,
+        weeklyPlannedHours: newRow.weekly_planned_hours || 40,
+        weeklyActualHours: newRow.weekly_actual_hours || 0,
+        utilizationPercent: newRow.utilization_percent || 0,
+        hourlyRate: parseFloat(newRow.hourly_rate) || 50,
+        skills: newRow.skills || [],
+        avatarUrl: newRow.avatar_url || null,
+      };
+      set(s => ({ resources: [mapped, ...s.resources.filter(r => r.id !== mapped.id)].sort((a, b) => a.name.localeCompare(b.name)) }));
+    } else if (eventType === 'UPDATE') {
+      const mapped = {
+        id: newRow.id,
+        name: newRow.name,
+        role: newRow.role,
+        specialization: newRow.specialization || null,
+        weeklyPlannedHours: newRow.weekly_planned_hours || 40,
+        weeklyActualHours: newRow.weekly_actual_hours || 0,
+        utilizationPercent: newRow.utilization_percent || 0,
+        hourlyRate: parseFloat(newRow.hourly_rate) || 50,
+        skills: newRow.skills || [],
+        avatarUrl: newRow.avatar_url || null,
+      };
+      set(s => ({ resources: s.resources.map(r => r.id === mapped.id ? mapped : r).sort((a, b) => a.name.localeCompare(b.name)) }));
+    } else if (eventType === 'DELETE') {
+      set(s => ({ resources: s.resources.filter(r => r.id !== oldRow.id) }));
+    }
   }
 }));

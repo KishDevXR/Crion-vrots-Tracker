@@ -15,7 +15,8 @@ import {
   DollarSign,
   ChevronLeft,
   ChevronRight,
-  Shield
+  Shield,
+  Bug
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -34,6 +35,7 @@ export default function Sidebar() {
     { name: 'Resources', path: '/resources', icon: Users, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
     { name: 'Hiring & Skills', path: '/hiring', icon: Briefcase, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
     { name: 'Reports', path: '/reports', icon: BarChart2, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
+    { name: 'QA & Releases', path: '/qa-hub', icon: Bug, roles: ['Admin', 'Manager', 'Team Member', 'Stakeholder'] },
     // Budget & Cost is Admin + Stakeholder only, completely hidden from others
     { name: 'Budget & Cost', path: '/budget', icon: DollarSign, roles: ['Admin', 'Stakeholder'] },
     // User Control Panel is Admin only
